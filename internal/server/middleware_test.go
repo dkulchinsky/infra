@@ -16,7 +16,7 @@ import (
 	"github.com/infrahq/infra/internal/generate"
 	"github.com/infrahq/infra/internal/server/data"
 	"github.com/infrahq/infra/internal/server/models"
-	"github.com/infrahq/infra/internal/testing/patch"
+	tpatch "github.com/infrahq/infra/internal/testing/patch"
 	"github.com/infrahq/infra/uid"
 )
 
@@ -24,7 +24,7 @@ func setupDB(t *testing.T) *gorm.DB {
 	driver, err := data.NewSQLiteDriver("file::memory:")
 	assert.NilError(t, err)
 
-	patch.ModelsSymmetricKey(t)
+	tpatch.ModelsSymmetricKey(t)
 	db, err := data.NewDB(driver, nil)
 	assert.NilError(t, err)
 
@@ -149,7 +149,7 @@ func TestRequireAuthentication(t *testing.T) {
 		},
 		"AccessKeyNoMatch": {
 			"authFunc": func(t *testing.T, db *gorm.DB, c *gin.Context) {
-				authentication := fmt.Sprintf("%s.%s", uid.New().String(), generate.MathRandom(models.AccessKeySecretLength))
+				authentication := fmt.Sprintf("%s.%s", uid.New().String(), generate.MathRandom(models.AccessKeySecretLength, generate.CharsetAlphaNumeric))
 				r := httptest.NewRequest(http.MethodGet, "/", nil)
 				r.Header.Add("Authorization", "Bearer "+authentication)
 				c.Request = r
@@ -161,7 +161,7 @@ func TestRequireAuthentication(t *testing.T) {
 		"AccessKeyInvalidSecret": {
 			"authFunc": func(t *testing.T, db *gorm.DB, c *gin.Context) {
 				token := issueToken(t, db, "existing@infrahq.com", time.Minute*1)
-				authentication := fmt.Sprintf("%s.%s", strings.Split(token, ".")[0], generate.MathRandom(models.AccessKeySecretLength))
+				authentication := fmt.Sprintf("%s.%s", strings.Split(token, ".")[0], generate.MathRandom(models.AccessKeySecretLength, generate.CharsetAlphaNumeric))
 				r := httptest.NewRequest(http.MethodGet, "/", nil)
 				r.Header.Add("Authorization", "Bearer "+authentication)
 				c.Request = r
@@ -172,7 +172,7 @@ func TestRequireAuthentication(t *testing.T) {
 		},
 		"UnknownAuthenticationMethod": {
 			"authFunc": func(t *testing.T, db *gorm.DB, c *gin.Context) {
-				authentication, err := generate.CryptoRandom(32)
+				authentication, err := generate.CryptoRandom(32, generate.CharsetAlphaNumeric)
 				assert.NilError(t, err)
 				r := httptest.NewRequest(http.MethodGet, "/", nil)
 				r.Header.Add("Authorization", "Bearer "+authentication)

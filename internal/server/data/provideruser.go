@@ -29,7 +29,7 @@ func CreateProviderUser(db *gorm.DB, provider *models.Provider, ident *models.Id
 		}
 	}
 
-	// If there were other attributes to udpate, I guess they should be updated here.
+	// If there were other attributes to update, I guess they should be updated here.
 
 	return pu, nil
 }
@@ -38,8 +38,12 @@ func UpdateProviderUser(db *gorm.DB, providerUser *models.ProviderUser) error {
 	return save(db, providerUser)
 }
 
-func DeleteProviderUsers(db *gorm.DB, selector SelectorFunc) error {
-	return deleteAll[models.ProviderUser](db, selector)
+func ListProviderUsers(db *gorm.DB, selectors ...SelectorFunc) ([]models.ProviderUser, error) {
+	return list[models.ProviderUser](db, selectors...)
+}
+
+func DeleteProviderUsers(db *gorm.DB, selectors ...SelectorFunc) error {
+	return deleteAll[models.ProviderUser](db, selectors...)
 }
 
 func GetProviderUser(db *gorm.DB, providerID, userID uid.ID) (*models.ProviderUser, error) {

@@ -128,10 +128,9 @@ func migrate(db *gorm.DB) error {
 				type Credential struct {
 					models.Model
 
-					Identity            string `gorm:"<-;uniqueIndex:,where:deleted_at is NULL"`
-					PasswordHash        []byte `validate:"required"`
-					OneTimePassword     bool
-					OneTimePasswordUsed bool
+					Identity        string `gorm:"<-;uniqueIndex:,where:deleted_at is NULL"`
+					PasswordHash    []byte `validate:"required"`
+					OneTimePassword bool
 				}
 
 				var creds []Credential
@@ -160,11 +159,10 @@ func migrate(db *gorm.DB) error {
 					}
 
 					convertedCred := &models.Credential{
-						Model:               cred.Model,
-						IdentityID:          identityID,
-						PasswordHash:        cred.PasswordHash,
-						OneTimePassword:     cred.OneTimePassword,
-						OneTimePasswordUsed: cred.OneTimePasswordUsed,
+						Model:           cred.Model,
+						IdentityID:      identityID,
+						PasswordHash:    cred.PasswordHash,
+						OneTimePassword: cred.OneTimePassword,
 					}
 
 					if err := CreateCredential(db, convertedCred); err != nil {
@@ -471,6 +469,8 @@ func migrate(db *gorm.DB) error {
 				return nil
 			},
 		},
+		addKindToProviders(),
+		dropCertificateTables(),
 		// next one here
 	})
 
@@ -506,8 +506,6 @@ func initializeSchema(db *gorm.DB) error {
 		&models.AccessKey{},
 		&models.Settings{},
 		&models.EncryptionKey{},
-		&models.TrustedCertificate{},
-		&models.RootCertificate{},
 		&models.Credential{},
 		&models.ProviderUser{},
 	}
@@ -519,4 +517,35 @@ func initializeSchema(db *gorm.DB) error {
 	}
 
 	return nil
+}
+
+// #2294: set the provider kind on existing providers
+func addKindToProviders() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "202206151027",
+		Migrate: func(tx *gorm.DB) error {
+			if !tx.Migrator().HasColumn(&models.Provider{}, "kind") {
+				logging.S.Debug("migrating provider table kind")
+				if err := tx.Migrator().AddColumn(&models.Provider{}, "kind"); err != nil {
+					return err
+				}
+			}
+
+			db := tx.Begin()
+			db.Table("providers").Where("kind IS NULL AND name = ?", "infra").Update("kind", models.InfraKind)
+			db.Table("providers").Where("kind IS NULL").Update("kind", models.OktaKind)
+
+			return db.Commit().Error
+		},
+	}
+}
+
+// #2276: drop unused certificate tables
+func dropCertificateTables() *gormigrate.Migration {
+	return &gormigrate.Migration{
+		ID: "202206161733",
+		Migrate: func(tx *gorm.DB) error {
+			return tx.Migrator().DropTable("trusted_certificates", "root_certificates")
+		},
+	}
 }

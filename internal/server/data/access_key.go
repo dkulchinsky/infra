@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ssoroka/slice"
 	"gorm.io/gorm"
 
 	"github.com/infrahq/infra/internal/generate"
@@ -21,7 +22,7 @@ func secretChecksum(secret string) []byte {
 
 func CreateAccessKey(db *gorm.DB, accessKey *models.AccessKey) (body string, err error) {
 	if accessKey.KeyID == "" {
-		accessKey.KeyID = generate.MathRandom(models.AccessKeyKeyLength)
+		accessKey.KeyID = generate.MathRandom(models.AccessKeyKeyLength, generate.CharsetAlphaNumeric)
 	}
 
 	if len(accessKey.KeyID) != models.AccessKeyKeyLength {
@@ -29,7 +30,7 @@ func CreateAccessKey(db *gorm.DB, accessKey *models.AccessKey) (body string, err
 	}
 
 	if accessKey.Secret == "" {
-		secret, err := generate.CryptoRandom(models.AccessKeySecretLength)
+		secret, err := generate.CryptoRandom(models.AccessKeySecretLength, generate.CharsetAlphaNumeric)
 		if err != nil {
 			return "", err
 		}
@@ -94,10 +95,9 @@ func DeleteAccessKeys(db *gorm.DB, selectors ...SelectorFunc) error {
 		return err
 	}
 
-	ids := make([]uid.ID, 0)
-	for _, k := range toDelete {
-		ids = append(ids, k.ID)
-	}
+	ids := slice.Map[models.AccessKey, uid.ID](toDelete, func(k models.AccessKey) uid.ID {
+		return k.ID
+	})
 
 	return deleteAll[models.AccessKey](db, ByIDs(ids))
 }

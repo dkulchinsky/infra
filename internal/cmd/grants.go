@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -58,12 +59,22 @@ func newGrantsListCmd(cli *CLI) *cobra.Command {
 
 			grants, err := client.ListGrants(api.ListGrantsRequest{Resource: options.Destination})
 			if err != nil {
+				if api.ErrorStatusCode(err) == 403 {
+					logging.S.Debug(err)
+					return Error{
+						Message: "Cannot list grants: missing privileges for ListGrants",
+					}
+				}
 				return err
 			}
 
 			numUserGrants, err := userGrants(cli, client, grants)
 			if err != nil {
 				return err
+			}
+
+			if numUserGrants != 0 {
+				cli.Output("")
 			}
 
 			numGroupGrants, err := groupGrants(cli, client, grants)
@@ -205,6 +216,12 @@ func removeGrant(cli *CLI, cmdOptions grantsCmdOptions) error {
 
 	user, group, err := checkUserGroup(client, cmdOptions.Name, cmdOptions.IsGroup)
 	if err != nil {
+		var cliError Error
+		if errors.As(err, &cliError) {
+			return Error{
+				Message: fmt.Sprintf("Cannot revoke grants: %s", cliError.Message),
+			}
+		}
 		return err
 	}
 
@@ -218,6 +235,12 @@ func removeGrant(cli *CLI, cmdOptions grantsCmdOptions) error {
 	logging.S.Debugf("call server: list grants %#v", listGrantsReq)
 	grants, err := client.ListGrants(listGrantsReq)
 	if err != nil {
+		if api.ErrorStatusCode(err) == 403 {
+			logging.S.Debug(err)
+			return Error{
+				Message: "Cannot revoke grants: missing privileges for ListGrants",
+			}
+		}
 		return err
 	}
 
@@ -229,6 +252,12 @@ func removeGrant(cli *CLI, cmdOptions grantsCmdOptions) error {
 		logging.S.Debugf("call server: delete grant %s", g.ID)
 		err := client.DeleteGrant(g.ID)
 		if err != nil {
+			if api.ErrorStatusCode(err) == 403 {
+				logging.S.Debug(err)
+				return Error{
+					Message: "Cannot revoke grants: missing privileges for DeleteGrant",
+				}
+			}
 			return err
 		}
 
@@ -278,14 +307,26 @@ func addGrant(cli *CLI, cmdOptions grantsCmdOptions) error {
 
 	userID, groupID, err := checkUserGroup(client, cmdOptions.Name, cmdOptions.IsGroup)
 	if err != nil {
+		var cliError Error
+		if errors.As(err, &cliError) {
+			return Error{
+				Message: fmt.Sprintf("Cannot create grants: %s", cliError.Message),
+			}
+		}
 		if !cmdOptions.Force {
 			return err
 		}
 	}
 
 	if userID == 0 && !cmdOptions.IsGroup {
-		user, err := createUser(client, cmdOptions.Name, false)
+		user, err := createUser(client, cmdOptions.Name)
 		if err != nil {
+			if api.ErrorStatusCode(err) == 403 {
+				logging.S.Debug(err)
+				return Error{
+					Message: "Cannot create grants: missing privileges for ListGrants",
+				}
+			}
 			return err
 		}
 
@@ -295,6 +336,13 @@ func addGrant(cli *CLI, cmdOptions grantsCmdOptions) error {
 	} else if groupID == 0 && cmdOptions.IsGroup {
 		group, err := createGroup(client, cmdOptions.Name)
 		if err != nil {
+
+			if api.ErrorStatusCode(err) == 403 {
+				logging.S.Debug(err)
+				return Error{
+					Message: "Cannot create grants: missing privileges for CreateGroup",
+				}
+			}
 			return err
 		}
 
@@ -317,6 +365,12 @@ func addGrant(cli *CLI, cmdOptions grantsCmdOptions) error {
 	logging.S.Debugf("call server: create grant %#v", createGrantReq)
 	_, err = client.CreateGrant(createGrantReq)
 	if err != nil {
+		if api.ErrorStatusCode(err) == 403 {
+			logging.S.Debug(err)
+			return Error{
+				Message: "Cannot create grant: missing privileges for CreateGrant",
+			}
+		}
 		return err
 	}
 
@@ -331,6 +385,12 @@ func checkUserGroup(client *api.Client, subject string, isGroup bool) (userID ui
 	if isGroup {
 		group, err := getGroupByName(client, subject)
 		if err != nil {
+			if api.ErrorStatusCode(err) == 403 {
+				logging.S.Debug(err)
+				return 0, 0, Error{
+					Message: "missing privileges for GetGroup",
+				}
+			}
 			return 0, 0, err
 		}
 
@@ -339,6 +399,12 @@ func checkUserGroup(client *api.Client, subject string, isGroup bool) (userID ui
 
 	user, err := getUserByName(client, subject)
 	if err != nil {
+		if api.ErrorStatusCode(err) == 403 {
+			logging.S.Debug(err)
+			return 0, 0, Error{
+				Message: "missing privileges for GetUser",
+			}
+		}
 		return 0, 0, err
 	}
 

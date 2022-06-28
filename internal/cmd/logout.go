@@ -68,10 +68,10 @@ func logoutOfServer(hostConfig *ClientHostConfig) (success bool) {
 		return false
 	}
 
-	client := apiClient(hostConfig.Host, hostConfig.AccessKey, hostConfig.SkipTLSVerify)
+	client := apiClient(hostConfig.Host, hostConfig.AccessKey, httpTransportForHostConfig(hostConfig))
 
 	hostConfig.AccessKey = ""
-	hostConfig.PolymorphicID = ""
+	hostConfig.UserID = 0
 	hostConfig.Name = ""
 
 	err := client.Logout()

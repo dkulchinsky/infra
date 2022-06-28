@@ -17,6 +17,7 @@ import (
 	"github.com/infrahq/infra/internal/logging"
 	"github.com/infrahq/infra/internal/server/authn"
 	"github.com/infrahq/infra/internal/server/models"
+	"github.com/infrahq/infra/internal/server/providers"
 	"github.com/infrahq/infra/uid"
 )
 
@@ -57,32 +58,27 @@ func (a *API) GetUser(c *gin.Context, r *api.GetUserRequest) (*api.User, error) 
 	return identity.ToAPI(), nil
 }
 
+// CreateUser creates a user with the Infra provider
 func (a *API) CreateUser(c *gin.Context, r *api.CreateUserRequest) (*api.CreateUserResponse, error) {
 	user := &models.Identity{Name: r.Name}
-
-	setOTP := r.SetOneTimePassword
+	infraProvider := access.InfraProvider(c)
 
 	// infra identity creation should be attempted even if an identity is already known
-	if setOTP {
-		identities, err := access.ListIdentities(c, user.Name, 0, nil, models.Pagination{Limit: 2})
-		if err != nil {
-			return nil, fmt.Errorf("list identities: %w", err)
-		}
+	identities, err := access.ListIdentities(c, user.Name, 0, nil, models.Pagination{Limit: 2})
+	if err != nil {
+		return nil, fmt.Errorf("list identities: %w", err)
+	}
 
-		switch len(identities) {
-		case 0:
-			if err := access.CreateIdentity(c, user); err != nil {
-				return nil, fmt.Errorf("create identity: %w", err)
-			}
-		case 1:
-			user.ID = identities[0].ID
-		default:
-			return nil, fmt.Errorf("multiple identities match specified name") // should not happen
-		}
-	} else {
+	switch len(identities) {
+	case 0:
 		if err := access.CreateIdentity(c, user); err != nil {
 			return nil, fmt.Errorf("create identity: %w", err)
 		}
+	case 1:
+		user.ID = identities[0].ID
+	default:
+		logging.S.Errorf("Multiple identites match name %q. DB is missing unique index on user names", r.Name)
+		return nil, fmt.Errorf("multiple identities match specified name") // should not happen
 	}
 
 	resp := &api.CreateUserResponse{
@@ -90,19 +86,18 @@ func (a *API) CreateUser(c *gin.Context, r *api.CreateUserRequest) (*api.CreateU
 		Name: user.Name,
 	}
 
-	if setOTP {
-		_, err := access.CreateProviderUser(c, access.InfraProvider(c), user)
-		if err != nil {
-			return nil, fmt.Errorf("create provider user")
-		}
-
-		oneTimePassword, err := access.CreateCredential(c, *user)
-		if err != nil {
-			return nil, fmt.Errorf("create credential: %w", err)
-		}
-
-		resp.OneTimePassword = oneTimePassword
+	_, err = access.CreateProviderUser(c, infraProvider, user)
+	if err != nil {
+		return nil, fmt.Errorf("creating provider user: %w", err)
 	}
+
+	// Always create a temporary password for infra users.
+	tmpPassword, err := access.CreateCredential(c, *user)
+	if err != nil {
+		return nil, fmt.Errorf("create credential: %w", err)
+	}
+
+	resp.OneTimePassword = tmpPassword
 
 	return resp, nil
 }
@@ -118,6 +113,9 @@ func (a *API) UpdateUser(c *gin.Context, r *api.UpdateUserRequest) (*api.User, e
 	if err != nil {
 		return nil, err
 	}
+
+	// if the user is an admin, we could be required to create the infra user, so create the provider_user if it's missing.
+	_, _ = access.CreateProviderUser(c, access.InfraProvider(c), identity)
 
 	return identity.ToAPI(), nil
 }
@@ -159,12 +157,25 @@ func (a *API) CreateGroup(c *gin.Context, r *api.CreateGroupRequest) (*api.Group
 		Name: r.Name,
 	}
 
+	authIdent := access.AuthenticatedIdentity(c)
+	if authIdent != nil {
+		group.CreatedBy = authIdent.ID
+	}
+
 	err := access.CreateGroup(c, group)
 	if err != nil {
 		return nil, err
 	}
 
 	return group.ToAPI(), nil
+}
+
+func (a *API) DeleteGroup(c *gin.Context, r *api.Resource) (*api.EmptyResponse, error) {
+	return nil, access.DeleteGroup(c, r.ID)
+}
+
+func (a *API) UpdateUsersInGroup(c *gin.Context, r *api.UpdateUsersInGroupRequest) (*api.EmptyResponse, error) {
+	return nil, access.UpdateUsersInGroup(c, r.GroupID, r.UserIDsToAdd, r.UserIDsToRemove)
 }
 
 // caution: this endpoint is unauthenticated, do not return sensitive info
@@ -214,6 +225,12 @@ func (a *API) CreateProvider(c *gin.Context, r *api.CreateProviderRequest) (*api
 		ClientSecret: models.EncryptedAtRest(r.ClientSecret),
 	}
 
+	kind, err := models.ParseProviderKind(r.Kind)
+	if err != nil {
+		return nil, err
+	}
+	provider.Kind = kind
+
 	if err := a.validateProvider(c, provider); err != nil {
 		return nil, err
 	}
@@ -235,6 +252,12 @@ func (a *API) UpdateProvider(c *gin.Context, r *api.UpdateProviderRequest) (*api
 		ClientID:     r.ClientID,
 		ClientSecret: models.EncryptedAtRest(r.ClientSecret),
 	}
+
+	kind, err := models.ParseProviderKind(r.Kind)
+	if err != nil {
+		return nil, err
+	}
+	provider.Kind = kind
 
 	if err := a.validateProvider(c, provider); err != nil {
 		return nil, err
@@ -320,7 +343,8 @@ func (a *API) CreateToken(c *gin.Context, r *api.EmptyRequest) (*api.CreateToken
 	if access.AuthenticatedIdentity(c) != nil {
 		err := a.UpdateIdentityInfoFromProvider(c)
 		if err != nil {
-			return nil, fmt.Errorf("%w: update ident info from provider: %s", internal.ErrForbidden, err)
+			// TODO: why would this fail? seems like this should be a 5xx error
+			return nil, fmt.Errorf("update ident info from provider: %w", err)
 		}
 
 		token, err := access.CreateToken(c)
@@ -456,7 +480,7 @@ func (a *API) DeleteGrant(c *gin.Context, r *api.Resource) (*api.EmptyResponse, 
 		}
 
 		if len(infraAdminGrants) == 1 {
-			return nil, fmt.Errorf("%w: cannot remove the last infra admin", internal.ErrForbidden)
+			return nil, fmt.Errorf("%w: cannot remove the last infra admin", internal.ErrBadRequest)
 		}
 	}
 
@@ -465,7 +489,7 @@ func (a *API) DeleteGrant(c *gin.Context, r *api.Resource) (*api.EmptyResponse, 
 
 func (a *API) SignupEnabled(c *gin.Context, _ *api.EmptyRequest) (*api.SignupEnabledResponse, error) {
 	if !a.server.options.EnableSignup {
-		return nil, internal.ErrForbidden
+		return &api.SignupEnabledResponse{Enabled: false}, nil
 	}
 
 	signupEnabled, err := access.SignupEnabled(c)
@@ -473,14 +497,12 @@ func (a *API) SignupEnabled(c *gin.Context, _ *api.EmptyRequest) (*api.SignupEna
 		return nil, err
 	}
 
-	return &api.SignupEnabledResponse{
-		Enabled: signupEnabled,
-	}, nil
+	return &api.SignupEnabledResponse{Enabled: signupEnabled}, nil
 }
 
 func (a *API) Signup(c *gin.Context, r *api.SignupRequest) (*api.User, error) {
 	if !a.server.options.EnableSignup {
-		return nil, internal.ErrForbidden
+		return nil, fmt.Errorf("%w: signup is disabled", internal.ErrBadRequest)
 	}
 
 	signupEnabled, err := access.SignupEnabled(c)
@@ -489,7 +511,7 @@ func (a *API) Signup(c *gin.Context, r *api.SignupRequest) (*api.User, error) {
 	}
 
 	if !signupEnabled {
-		return nil, internal.ErrForbidden
+		return nil, fmt.Errorf("%w: signup is disabled", internal.ErrBadRequest)
 	}
 
 	if r.Name == "" {
@@ -600,13 +622,13 @@ func (a *API) validateProvider(c *gin.Context, provider *models.Provider) error 
 		return fmt.Errorf("%w: %s", internal.ErrBadRequest, err)
 	}
 
-	return oidc.Validate()
+	return oidc.Validate(c.Request.Context())
 }
 
-func (a *API) providerClient(c *gin.Context, provider *models.Provider, redirectURL string) (authn.OIDC, error) {
+func (a *API) providerClient(c *gin.Context, provider *models.Provider, redirectURL string) (providers.OIDC, error) {
 	if val, ok := c.Get("oidc"); ok {
 		// oidc is added to the context during unit tests
-		oidc, _ := val.(authn.OIDC)
+		oidc, _ := val.(providers.OIDC)
 		return oidc, nil
 	}
 
@@ -616,5 +638,5 @@ func (a *API) providerClient(c *gin.Context, provider *models.Provider, redirect
 		return nil, fmt.Errorf("client secret not found")
 	}
 
-	return authn.NewOIDC(provider.URL, provider.ClientID, clientSecret, redirectURL), nil
+	return providers.NewOIDC(*provider, clientSecret, redirectURL), nil
 }

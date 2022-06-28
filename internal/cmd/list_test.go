@@ -11,7 +11,6 @@ import (
 
 	"github.com/infrahq/infra/api"
 	"github.com/infrahq/infra/internal/server"
-	"github.com/infrahq/infra/uid"
 )
 
 func TestListCmd(t *testing.T) {
@@ -47,7 +46,8 @@ func TestListCmd(t *testing.T) {
 		assert.Check(t, srv.Run(ctx))
 	}()
 
-	c := apiClient(srv.Addrs.HTTPS.String(), "0000000001.adminadminadminadmin1234", true)
+	httpTransport := httpTransportForHostConfig(&ClientHostConfig{SkipTLSVerify: true})
+	c := apiClient(srv.Addrs.HTTPS.String(), "0000000001.adminadminadminadmin1234", httpTransport)
 
 	_, err = c.CreateDestination(&api.CreateDestinationRequest{
 		UniqueID: "space",
@@ -77,10 +77,10 @@ func TestListCmd(t *testing.T) {
 	t.Run("with no grants", func(t *testing.T) {
 		user := userMap["nogrants@example.com"]
 		err := writeConfig(&ClientConfig{
-			Version: "0.3",
+			ClientConfigVersion: clientConfigVersion,
 			Hosts: []ClientHostConfig{
 				{
-					PolymorphicID: uid.NewIdentityPolymorphicID(user.ID),
+					UserID:        user.ID,
 					Name:          user.Name,
 					Host:          srv.Addrs.HTTPS.String(),
 					AccessKey:     "0000000002.notadminsecretnotadmin02",
@@ -103,10 +103,10 @@ func TestListCmd(t *testing.T) {
 	t.Run("with many grants", func(t *testing.T) {
 		user := userMap["manygrants@example.com"]
 		err := writeConfig(&ClientConfig{
-			Version: "0.3",
+			ClientConfigVersion: clientConfigVersion,
 			Hosts: []ClientHostConfig{
 				{
-					PolymorphicID: uid.NewIdentityPolymorphicID(user.ID),
+					UserID:        user.ID,
 					Name:          user.Name,
 					Host:          srv.Addrs.HTTPS.String(),
 					AccessKey:     "0000000003.notadminsecretnotadmin03",

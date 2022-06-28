@@ -1,7 +1,6 @@
 package access
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
@@ -9,16 +8,16 @@ import (
 
 	"github.com/infrahq/infra/internal"
 	"github.com/infrahq/infra/internal/logging"
-	"github.com/infrahq/infra/internal/server/authn"
 	"github.com/infrahq/infra/internal/server/data"
 	"github.com/infrahq/infra/internal/server/models"
+	"github.com/infrahq/infra/internal/server/providers"
 	"github.com/infrahq/infra/uid"
 )
 
 // isIdentitySelf is used by authorization checks to see if the calling identity is requesting their own attributes
-func isIdentitySelf(c *gin.Context, requestedResourceID uid.ID) (bool, error) {
+func isIdentitySelf(c *gin.Context, userID uid.ID) (bool, error) {
 	identity := AuthenticatedIdentity(c)
-	return identity != nil && identity.ID == requestedResourceID, nil
+	return identity != nil && identity.ID == userID, nil
 }
 
 // AuthenticatedIdentity returns the identity that is associated with the access key
@@ -35,9 +34,10 @@ func AuthenticatedIdentity(c *gin.Context) *models.Identity {
 }
 
 func GetIdentity(c *gin.Context, id uid.ID) (*models.Identity, error) {
-	db, err := hasAuthorization(c, id, isIdentitySelf, models.InfraAdminRole, models.InfraViewRole, models.InfraConnectorRole)
+	roles := []string{models.InfraAdminRole, models.InfraViewRole, models.InfraConnectorRole}
+	db, err := hasAuthorization(c, id, isIdentitySelf, roles...)
 	if err != nil {
-		return nil, err
+		return nil, HandleAuthErr(err, "user", "get", roles...)
 	}
 
 	return data.GetIdentity(db.Preload("Providers"), data.ByID(id))
@@ -46,7 +46,7 @@ func GetIdentity(c *gin.Context, id uid.ID) (*models.Identity, error) {
 func CreateIdentity(c *gin.Context, identity *models.Identity) error {
 	db, err := RequireInfraRole(c, models.InfraAdminRole)
 	if err != nil {
-		return err
+		return HandleAuthErr(err, "user", "create", models.InfraAdminRole)
 	}
 
 	return data.CreateIdentity(db, identity)
@@ -56,6 +56,7 @@ func InfraConnectorIdentity(c *gin.Context) *models.Identity {
 	return data.InfraConnectorIdentity(getDB(c))
 }
 
+// TODO (https://github.com/infrahq/infra/issues/2318) remove provider user, not user.
 func DeleteIdentity(c *gin.Context, id uid.ID) error {
 	self, err := isIdentitySelf(c, id)
 	if err != nil {
@@ -63,16 +64,16 @@ func DeleteIdentity(c *gin.Context, id uid.ID) error {
 	}
 
 	if self {
-		return fmt.Errorf("cannot delete self: %w", internal.ErrForbidden)
+		return fmt.Errorf("cannot delete self: %w", internal.ErrBadRequest)
 	}
 
 	if InfraConnectorIdentity(c).ID == id {
-		return internal.ErrForbidden
+		return fmt.Errorf("%w: the connector user can not be deleted", internal.ErrBadRequest)
 	}
 
 	db, err := RequireInfraRole(c, models.InfraAdminRole)
 	if err != nil {
-		return err
+		return HandleAuthErr(err, "user", "delete", models.InfraAdminRole)
 	}
 
 	if err := data.DeleteAccessKeys(db, data.ByIssuedFor(id)); err != nil {
@@ -101,22 +102,20 @@ func DeleteIdentity(c *gin.Context, id uid.ID) error {
 }
 
 func ListIdentities(c *gin.Context, name string, groupID uid.ID, ids []uid.ID, pg models.Pagination) ([]models.Identity, error) {
-	db, err := RequireInfraRole(c, models.InfraAdminRole, models.InfraViewRole, models.InfraConnectorRole)
+	roles := []string{models.InfraAdminRole, models.InfraViewRole, models.InfraConnectorRole}
+	db, err := RequireInfraRole(c, roles...)
 	if err != nil {
-		return nil, err
+		return nil, HandleAuthErr(err, "users", "list", roles...)
 	}
 
 	selectors := []data.SelectorFunc{
 		data.ByOptionalName(name),
 		data.ByOptionalIDs(ids),
+		data.ByOptionalIdentityGroupID(groupID),
 		data.ByPagination(pg),
 	}
 
-	if groupID != 0 {
-		return data.ListIdentitiesByGroup(db, groupID, selectors...)
-	}
-
-	return data.ListIdentities(db, selectors...)
+	return data.ListIdentities(db.Preload("Providers"), selectors...)
 }
 
 func GetContextProviderIdentity(c *gin.Context) (*models.Provider, string, error) {
@@ -145,7 +144,9 @@ func GetContextProviderIdentity(c *gin.Context) (*models.Provider, string, error
 }
 
 // UpdateIdentityInfoFromProvider calls the identity provider used to authenticate this user session to update their current information
-func UpdateIdentityInfoFromProvider(c *gin.Context, oidc authn.OIDC) error {
+func UpdateIdentityInfoFromProvider(c *gin.Context, oidc providers.OIDC) error {
+	ctx := c.Request.Context()
+
 	// added by the authentication middleware
 	identity := AuthenticatedIdentity(c)
 	if identity == nil {
@@ -157,50 +158,24 @@ func UpdateIdentityInfoFromProvider(c *gin.Context, oidc authn.OIDC) error {
 
 	accessKey := currentAccessKey(c)
 
-	providerUser, err := data.GetProviderUser(db, accessKey.ProviderID, identity.ID)
-	if err != nil {
-		return err
-	}
-
-	provider, err := data.GetProvider(db, data.ByID(providerUser.ProviderID))
+	provider, err := data.GetProvider(db, data.ByID(accessKey.ProviderID))
 	if err != nil {
 		return fmt.Errorf("user info provider: %w", err)
 	}
 
-	if provider.Name == models.InternalInfraProviderName {
-		return nil
-	}
-
-	// check if the access token needs to be refreshed
-	newAccessToken, newExpiry, err := oidc.RefreshAccessToken(providerUser)
-	if err != nil {
-		return fmt.Errorf("refresh provider access: %w", err)
-	}
-
-	if newAccessToken != string(providerUser.AccessToken) {
-		logging.S.Debugf("access token for user at provider %s was refreshed", providerUser.ProviderID)
-
-		providerUser.AccessToken = models.EncryptedAtRest(newAccessToken)
-		providerUser.ExpiresAt = *newExpiry
-
-		if err := UpdateProviderUser(c, providerUser); err != nil {
-			return fmt.Errorf("update access token before JWT: %w", err)
-		}
-	}
-
 	// get current identity provider groups
-	info, err := oidc.GetUserInfo(providerUser)
+	err = oidc.SyncProviderUser(ctx, db, identity, provider)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("%w: %s", internal.ErrBadGateway, err.Error())
+		if errors.Is(err, internal.ErrBadGateway) {
+			return err
 		}
 
 		if nestedErr := data.DeleteAccessKeys(db, data.ByIssuedFor(identity.ID)); nestedErr != nil {
 			logging.S.Errorf("failed to revoke invalid user session: %s", nestedErr)
 		}
 
-		return fmt.Errorf("get user info: %w", err)
+		return fmt.Errorf("sync user: %w", err)
 	}
 
-	return authn.UpdateUserInfoFromProvider(db, info, identity, provider)
+	return nil
 }

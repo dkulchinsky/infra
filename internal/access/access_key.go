@@ -20,14 +20,15 @@ func currentAccessKey(c *gin.Context) *models.AccessKey {
 }
 
 func ListAccessKeys(c *gin.Context, identityID uid.ID, name string, showExpired bool, pg models.Pagination) ([]models.AccessKey, error) {
-	db, err := RequireInfraRole(c, models.InfraAdminRole, models.InfraViewRole)
+	roles := []string{models.InfraAdminRole, models.InfraViewRole}
+	db, err := RequireInfraRole(c, roles...)
 	if err != nil {
-		return nil, err
+		return nil, HandleAuthErr(err, "access keys", "list", roles...)
 	}
 
 	s := []data.SelectorFunc{data.ByOptionalIssuedFor(identityID), data.ByOptionalName(name), data.ByPagination(pg)}
 	if !showExpired {
-		s = append(s, data.ByNotExpired())
+		s = append(s, data.ByNotExpiredOrExtended())
 	}
 
 	return data.ListAccessKeys(db.Preload("IssuedForIdentity"), s...)
@@ -36,7 +37,7 @@ func ListAccessKeys(c *gin.Context, identityID uid.ID, name string, showExpired 
 func CreateAccessKey(c *gin.Context, accessKey *models.AccessKey) (body string, err error) {
 	db, err := RequireInfraRole(c, models.InfraAdminRole)
 	if err != nil {
-		return "", err
+		return "", HandleAuthErr(err, "access key", "create", models.InfraAdminRole)
 	}
 
 	body, err = data.CreateAccessKey(db, accessKey)
@@ -50,7 +51,7 @@ func CreateAccessKey(c *gin.Context, accessKey *models.AccessKey) (body string, 
 func DeleteAccessKey(c *gin.Context, id uid.ID) error {
 	db, err := RequireInfraRole(c, models.InfraAdminRole)
 	if err != nil {
-		return err
+		return HandleAuthErr(err, "access key", "delete", models.InfraAdminRole)
 	}
 
 	return data.DeleteAccessKeys(db, data.ByID(id))

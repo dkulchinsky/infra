@@ -4,11 +4,11 @@ go 1.18
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.5
-	github.com/aws/aws-sdk-go v1.44.32
+	github.com/aws/aws-sdk-go v1.44.42
 	github.com/cli/browser v1.1.0
 	github.com/gin-gonic/gin v1.7.7
 	github.com/go-playground/validator/v10 v10.11.0
-	github.com/goware/urlx v0.3.1
+	github.com/goware/urlx v0.3.2
 	github.com/hashicorp/vault/api v1.5.0 // indirect
 	github.com/jackc/pgconn v1.12.1
 	github.com/jackc/pgerrcode v0.0.0-20201024163028-a0d42d470451
@@ -53,7 +53,7 @@ require (
 	github.com/ssoroka/slice v0.0.0-20220402005549-78f0cea3df8b
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/text v0.3.7
-	gotest.tools/v3 v3.2.0
+	gotest.tools/v3 v3.3.0
 )
 
 require github.com/invopop/yaml v0.1.0 // indirect

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -11,27 +12,37 @@ import (
 	"github.com/infrahq/infra/uid"
 )
 
-// current: v0.3
-type ClientConfig struct {
-	Version string             `json:"version"`
-	Hosts   []ClientHostConfig `json:"hosts"`
+// clientConfigVersion is the current version of the client configuration file.
+// Use this constant when referring to a value in tests or code that should
+// always use latest.
+var clientConfigVersion = ClientConfigVersion{Version: "0.4"}
+
+type ClientConfigVersion struct {
+	Version string `json:"version"`
 }
 
-// current: v0.3
+type ClientConfig struct {
+	ClientConfigVersion `json:",inline"`
+	Hosts               []ClientHostConfig `json:"hosts"`
+}
+
 type ClientHostConfig struct {
-	PolymorphicID uid.PolymorphicID `json:"polymorphic-id"` // identity pid TODO: name this. what's it an ID of?
-	Name          string            `json:"name"`           // identity name
-	Host          string            `json:"host"`
-	AccessKey     string            `json:"access-key,omitempty"`
-	SkipTLSVerify bool              `json:"skip-tls-verify"` // where is the other cert info stored?
-	ProviderID    uid.ID            `json:"provider-id,omitempty"`
-	Expires       api.Time          `json:"expires"`
-	Current       bool              `json:"current"`
+	UserID        uid.ID   `json:"user-id"`
+	Name          string   `json:"name"` // user name
+	Host          string   `json:"host"`
+	AccessKey     string   `json:"access-key,omitempty"`
+	SkipTLSVerify bool     `json:"skip-tls-verify"` // where is the other cert info stored?
+	ProviderID    uid.ID   `json:"provider-id,omitempty"`
+	Expires       api.Time `json:"expires"`
+	Current       bool     `json:"current"`
+	// TrustedCertificate is the PEM encoded TLS certificate used by the server
+	// that was verified and trusted by the user as part of login.
+	TrustedCertificate string `json:"trusted-certificate"`
 }
 
 // checks if user is logged in to the given session (ClientHostConfig)
 func (c *ClientHostConfig) isLoggedIn() bool {
-	return c.AccessKey != "" && c.Name != "" && c.PolymorphicID != ""
+	return c.AccessKey != "" && c.Name != "" && c.UserID != 0
 }
 
 func (c *ClientHostConfig) isExpired() bool {
@@ -65,10 +76,10 @@ func readConfig() (*ClientConfig, error) {
 	}
 
 	if len(contents) == 0 {
-		return &ClientConfig{Version: "0.3"}, nil
+		return &ClientConfig{ClientConfigVersion: clientConfigVersion}, nil
 	}
 
-	config := &ClientConfig{}
+	config := &ClientConfigVersion{}
 	if err = json.Unmarshal(contents, &config); err != nil {
 		return nil, err
 	}
@@ -81,7 +92,7 @@ func readConfig() (*ClientConfig, error) {
 			return nil, err
 		}
 
-		return configv0dot1.ToV0dot2().ToV0dot3(), nil
+		return configv0dot1.ToV0dot2().ToV0dot3().ToV0dot4(), nil
 
 	case "0.2":
 		configv0dot2 := ClientConfigV0dot2{}
@@ -89,10 +100,23 @@ func readConfig() (*ClientConfig, error) {
 			return nil, err
 		}
 
-		return configv0dot2.ToV0dot3(), nil
-	}
+		return configv0dot2.ToV0dot3().ToV0dot4(), nil
+	case "0.3":
+		configv0dot3 := ClientConfigV0dot3{}
+		if err = json.Unmarshal(contents, &configv0dot3); err != nil {
+			return nil, err
+		}
 
-	return config, nil
+		return configv0dot3.ToV0dot4(), nil
+	case "0.4":
+		config := &ClientConfig{}
+		if err = json.Unmarshal(contents, &config); err != nil {
+			return nil, err
+		}
+		return config, nil
+	default:
+		return nil, errors.New("unknown version " + config.Version)
+	}
 }
 
 func writeConfig(config *ClientConfig) error {
@@ -106,11 +130,7 @@ func writeConfig(config *ClientConfig) error {
 		return err
 	}
 
-	if err = ioutil.WriteFile(filepath.Join(infraDir, "config"), []byte(contents), 0o600); err != nil {
-		return err
-	}
-
-	return nil
+	return ioutil.WriteFile(filepath.Join(infraDir, "config"), contents, 0o600)
 }
 
 // Save (create or update) the current hostconfig

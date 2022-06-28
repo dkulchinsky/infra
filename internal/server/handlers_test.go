@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -14,9 +15,11 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 	"gotest.tools/v3/assert"
 
 	"github.com/infrahq/infra/api"
+	"github.com/infrahq/infra/internal/generate"
 	"github.com/infrahq/infra/internal/server/data"
 	"github.com/infrahq/infra/internal/server/models"
 	"github.com/infrahq/infra/uid"
@@ -37,6 +40,16 @@ var defaultPagination api.PaginationResponse
 func TestAPI_ListUsers(t *testing.T) {
 	srv := setupServer(t, withAdminUser)
 	routes := srv.GenerateRoutes(prometheus.NewRegistry())
+
+	// TODO: Convert the "humans" group and "AnotherUser" user to call the standard http endpoints
+	//       when the new endpoint to add a user to a group exists
+	humans := models.Group{Name: "humans"}
+	createGroups(t, srv.db, &humans)
+	anotherID := models.Identity{
+		Name:   "AnotherUser@example.com",
+		Groups: []models.Group{humans},
+	}
+	createIdentities(t, srv.db, &anotherID)
 
 	createID := func(t *testing.T, name string) uid.ID {
 		t.Helper()
@@ -140,8 +153,9 @@ func TestAPI_ListUsers(t *testing.T) {
 				err := json.NewDecoder(resp.Body).Decode(&actual)
 				assert.NilError(t, err)
 				expected := api.ListResponse[api.User]{
-					Count: 6,
+					Count: 7,
 					Items: []api.User{
+						{Name: "AnotherUser@example.com"},
 						{Name: "HAL@example.com"},
 						{Name: "admin@example.com"},
 						{Name: "connector"},
@@ -174,13 +188,32 @@ func TestAPI_ListUsers(t *testing.T) {
 				expected := api.ListResponse[api.User]{
 					Count: 2,
 					Items: []api.User{
+						{Name: "admin@example.com"},
 						{Name: "connector"},
-						{Name: "me@example.com"},
 					},
 					PaginationInfo: api.PaginationResponse{
 						Page:  2,
 						Limit: 2,
 					},
+				}
+				assert.DeepEqual(t, actual, expected, cmpAPIUserShallow)
+			},
+		},
+		"user in group": {
+			urlPath: fmt.Sprintf("/api/users?group=%s", humans.ID),
+			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
+				assert.Equal(t, resp.Code, http.StatusOK)
+
+				var actual api.ListResponse[api.User]
+				err := json.NewDecoder(resp.Body).Decode(&actual)
+				assert.NilError(t, err)
+
+				expected := api.ListResponse[api.User]{
+					Count: 1,
+					Items: []api.User{
+						{Name: anotherID.Name},
+					},
+					PaginationInfo: defaultPagination,
 				}
 				assert.DeepEqual(t, actual, expected, cmpAPIUserShallow)
 			},
@@ -282,6 +315,15 @@ func TestListKeys(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
+	_, err = data.CreateAccessKey(db, &models.AccessKey{
+		Name:              "not_extended",
+		IssuedFor:         user.ID,
+		ProviderID:        provider.ID,
+		ExpiresAt:         time.Now().UTC().Add(5 * time.Minute),
+		ExtensionDeadline: time.Now().UTC().Add(-5 * time.Minute),
+	})
+	assert.NilError(t, err)
+
 	resp, err := handlers.ListAccessKeys(c, &api.ListAccessKeysRequest{})
 	assert.NilError(t, err)
 
@@ -294,14 +336,21 @@ func TestListKeys(t *testing.T) {
 
 	t.Run("expired", func(t *testing.T) {
 		for _, item := range resp.Items {
-			assert.Assert(t, time.Time(item.Expires).UTC().After(time.Now().UTC()))
+			assert.Assert(t, item.Expires.Time().UTC().After(time.Now().UTC()) || item.Expires.Time().IsZero())
+			assert.Assert(t, item.ExtensionDeadline.Time().UTC().After(time.Now().UTC()) || item.ExtensionDeadline.Time().IsZero())
 		}
 
 		notExpiredLength := len(resp.Items)
 		resp, err = handlers.ListAccessKeys(c, &api.ListAccessKeysRequest{ShowExpired: true})
 		assert.NilError(t, err)
 
-		assert.Equal(t, notExpiredLength, len(resp.Items)-1) // test showExpired in request
+		assert.Equal(t, notExpiredLength, len(resp.Items)-2) // test showExpired in request
+	})
+
+	t.Run("sort", func(t *testing.T) {
+		sort.SliceIsSorted(resp.Items, func(i, j int) bool {
+			return resp.Items[i].Name < resp.Items[j].Name
+		})
 	})
 
 	t.Run("latest", func(t *testing.T) {
@@ -386,81 +435,6 @@ func TestListProviders(t *testing.T) {
 
 	assert.Equal(t, len(apiProviders.Items), 1)
 	assert.Equal(t, apiProviders.Items[0].Name, "mokta")
-}
-
-func TestAPI_DeleteProvider(t *testing.T) {
-	srv := setupServer(t, withAdminUser)
-	routes := srv.GenerateRoutes(prometheus.NewRegistry())
-
-	createProvider := func(t *testing.T) *models.Provider {
-		t.Helper()
-		p := &models.Provider{Name: "mokta"}
-		err := data.CreateProvider(srv.db, p)
-		assert.NilError(t, err)
-		return p
-	}
-
-	provider1 := createProvider(t)
-
-	type testCase struct {
-		urlPath  string
-		setup    func(t *testing.T, req *http.Request)
-		expected func(t *testing.T, resp *httptest.ResponseRecorder)
-	}
-
-	run := func(t *testing.T, tc testCase) {
-		req, err := http.NewRequest(http.MethodDelete, tc.urlPath, nil)
-		assert.NilError(t, err)
-		req.Header.Add("Authorization", "Bearer "+adminAccessKey(srv))
-
-		if tc.setup != nil {
-			tc.setup(t, req)
-		}
-
-		resp := httptest.NewRecorder()
-		routes.ServeHTTP(resp, req)
-		tc.expected(t, resp)
-	}
-
-	testCases := map[string]testCase{
-		"not authenticated": {
-			urlPath: "/api/providers/1234",
-			setup: func(t *testing.T, req *http.Request) {
-				req.Header.Del("Authorization")
-			},
-			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusUnauthorized, resp.Code, resp.Body.String())
-			},
-		},
-		"not authorized": {
-			urlPath: "/api/providers/2341",
-			setup: func(t *testing.T, req *http.Request) {
-				key, _ := createAccessKey(t, srv.db, "someonenew@example.com")
-				req.Header.Set("Authorization", "Bearer "+key)
-			},
-			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
-			},
-		},
-		"successful delete": {
-			urlPath: "/api/providers/" + provider1.ID.String(),
-			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusNoContent, resp.Code, resp.Body.String())
-			},
-		},
-		"infra provider can not be deleted": {
-			urlPath: "/api/providers/" + data.InfraProvider(srv.db).ID.String(),
-			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			run(t, tc)
-		})
-	}
 }
 
 // withAdminUser may be used with setupServer to setup the server
@@ -548,13 +522,11 @@ func TestCreateIdentity(t *testing.T) {
 				err := json.NewDecoder(resp.Body).Decode(&id)
 				assert.NilError(t, err)
 				assert.Equal(t, "test-create-identity@example.com", id.Name)
-				assert.Assert(t, id.OneTimePassword == "")
 			},
 		},
 		"new infra user gets one time password": {
 			body: api.CreateUserRequest{
-				Name:               "test-infra-identity@example.com",
-				SetOneTimePassword: true,
+				Name: "test-infra-identity@example.com",
 			},
 			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
 				assert.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
@@ -568,8 +540,7 @@ func TestCreateIdentity(t *testing.T) {
 		},
 		"existing unlinked user gets password": {
 			body: api.CreateUserRequest{
-				Name:               "existing@example.com",
-				SetOneTimePassword: true,
+				Name: "existing@example.com",
 			},
 			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
 				assert.Equal(t, http.StatusCreated, resp.Code, resp.Body.String())
@@ -588,6 +559,150 @@ func TestCreateIdentity(t *testing.T) {
 			run(t, tc)
 		})
 	}
+}
+
+// Note this test is the result of a long conversation, don't change lightly.
+func TestCreateUserAndUpdatePassword(t *testing.T) {
+	db := setupDB(t)
+	a := &API{server: &Server{db: db}}
+	admin := createAdmin(t, db)
+
+	t.Run("with an IDP user existing", func(t *testing.T) {
+		idp := &models.Provider{Name: "Super Provider"}
+		err := data.CreateProvider(db, idp)
+		assert.NilError(t, err)
+
+		user := &models.Identity{Name: "user@example.com"}
+
+		err = data.CreateIdentity(db, user)
+		assert.NilError(t, err)
+
+		_, err = data.CreateProviderUser(db, idp, user)
+		assert.NilError(t, err)
+
+		t.Run("as an admin", func(t *testing.T) {
+			ctx := loginAs(db, admin)
+			t.Run("I can set passwords for IDP users ", func(t *testing.T) {
+				// (which creates the infra user)
+				_, err := a.UpdateUser(ctx, &api.UpdateUserRequest{
+					ID:       user.ID,
+					Password: "1234567890987654321a!",
+				})
+				assert.NilError(t, err)
+				_, err = data.GetProviderUser(db, data.InfraProvider(db).ID, user.ID)
+				assert.NilError(t, err)
+				cred, err := data.GetCredential(db, data.ByIdentityID(user.ID))
+				assert.NilError(t, err)
+				assert.Equal(t, true, cred.OneTimePassword)
+			})
+		})
+		t.Run("as a user", func(t *testing.T) {
+			ctx := loginAs(db, user)
+			t.Run("with no existing infra user", func(t *testing.T) {
+				err = data.DeleteProviderUsers(db, data.ByIdentityID(user.ID), data.ByProviderID(data.InfraProvider(db).ID))
+				assert.NilError(t, err)
+
+				cred, _ := data.GetCredential(db, data.ByIdentityID(user.ID))
+				if cred != nil {
+					_ = data.DeleteCredential(db, cred.ID)
+				}
+
+				t.Run("I cannot set a password", func(t *testing.T) {
+					_, err := a.UpdateUser(ctx, &api.UpdateUserRequest{
+						ID:       user.ID,
+						Password: "1234567890987654321a!",
+					})
+					assert.Error(t, err, "existing credential: record not found")
+				})
+			})
+			t.Run("with an existing infra user", func(t *testing.T) {
+				_, _ = data.CreateProviderUser(db, data.InfraProvider(db), user)
+
+				_ = data.CreateCredential(db, &models.Credential{
+					IdentityID:   user.ID,
+					PasswordHash: []byte("random password"),
+				})
+
+				t.Run("I can change my password", func(t *testing.T) {
+					_, err := a.UpdateUser(ctx, &api.UpdateUserRequest{
+						ID:       user.ID,
+						Password: "1234567890987654321a!",
+					})
+					assert.NilError(t, err)
+				})
+			})
+		})
+	})
+	t.Run("without an IDP user existing", func(t *testing.T) {
+		t.Run("as an admin", func(t *testing.T) {
+			ctx := loginAs(db, admin)
+			var tmpUserID uid.ID
+
+			t.Run("I can create a user", func(t *testing.T) {
+				resp, err := a.CreateUser(ctx, &api.CreateUserRequest{
+					Name: "joe+" + generate.MathRandom(10, generate.CharsetAlphaNumeric),
+				})
+				tmpUserID = resp.ID
+				assert.NilError(t, err)
+			})
+
+			t.Run("I can change a password for a user", func(t *testing.T) {
+				_, err := a.UpdateUser(ctx, &api.UpdateUserRequest{
+					ID:       tmpUserID,
+					Password: "123454676twefdhsds",
+				})
+				assert.NilError(t, err)
+			})
+		})
+		t.Run("as a user", func(t *testing.T) {
+			user := &models.Identity{Name: "user2@example.com"}
+
+			err := data.CreateIdentity(db, user)
+			assert.NilError(t, err)
+
+			_, err = data.CreateProviderUser(db, data.InfraProvider(db), user)
+			assert.NilError(t, err)
+
+			err = data.CreateCredential(db, &models.Credential{
+				IdentityID:   user.ID,
+				PasswordHash: []byte("random password"),
+			})
+			assert.NilError(t, err)
+
+			ctx := loginAs(db, user)
+			t.Run("I can change my password", func(t *testing.T) {
+				_, err := a.UpdateUser(ctx, &api.UpdateUserRequest{
+					ID:       user.ID,
+					Password: "123454676twefdhsds",
+				})
+				assert.NilError(t, err)
+			})
+		})
+	})
+}
+
+func createAdmin(t *testing.T, db *gorm.DB) *models.Identity {
+	user := &models.Identity{
+		Name: "admin+" + generate.MathRandom(10, generate.CharsetAlphaNumeric),
+	}
+	err := data.CreateIdentity(db, user)
+	assert.NilError(t, err)
+
+	err = data.CreateGrant(db, &models.Grant{
+		Subject:   uid.NewIdentityPolymorphicID(user.ID),
+		Resource:  models.InternalInfraProviderName,
+		Privilege: models.InfraAdminRole,
+	})
+	assert.NilError(t, err)
+
+	return user
+}
+
+func loginAs(db *gorm.DB, user *models.Identity) *gin.Context {
+	ctx, _ := gin.CreateTestContext(nil)
+	ctx.Set("db", db)
+	ctx.Set("identity", user)
+	return ctx
 }
 
 func jsonBody(t *testing.T, body interface{}) *bytes.Buffer {
@@ -635,7 +750,7 @@ func TestDeleteUser_NoDeleteInternalIdentities(t *testing.T) {
 	resp := httptest.NewRecorder()
 	routes.ServeHTTP(resp, req)
 
-	assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
+	assert.Equal(t, http.StatusBadRequest, resp.Code, resp.Body.String())
 }
 
 func TestDeleteUser_NoDeleteSelf(t *testing.T) {
@@ -668,7 +783,7 @@ func TestDeleteUser_NoDeleteSelf(t *testing.T) {
 	resp := httptest.NewRecorder()
 	routes.ServeHTTP(resp, req)
 
-	assert.Equal(t, http.StatusForbidden, resp.Code, resp.Body.String())
+	assert.Equal(t, http.StatusBadRequest, resp.Code, resp.Body.String())
 }
 
 func TestAPI_CreateGrant_Success(t *testing.T) {
@@ -849,7 +964,7 @@ var cmpApproximateTime = gocmp.Comparer(func(x, y interface{}) bool {
 	if xd.After(yd) {
 		xd, yd = yd, xd
 	}
-	return yd.Sub(xd) < 2*time.Second
+	return yd.Sub(xd) < 30*time.Second
 })
 
 // cmpAnyValidUID is a gocmp.Option that allows a field to match any valid uid.ID,
@@ -1040,6 +1155,7 @@ func TestAPI_GetUser(t *testing.T) {
 						"name": "me@example.com",
 						"lastSeenAt": "%[2]v",
 						"created": "%[2]v",
+						"providerNames": ["infra"],
 						"updated": "%[2]v"
 					}`,
 					idMe.String(),
@@ -1181,7 +1297,7 @@ func TestAPI_DeleteGrant(t *testing.T) {
 		resp := httptest.NewRecorder()
 		routes.ServeHTTP(resp, req)
 
-		assert.Equal(t, resp.Code, http.StatusForbidden, resp.Body.String())
+		assert.Equal(t, resp.Code, http.StatusBadRequest, resp.Body.String())
 	})
 
 	t.Run("not last infra admin is deleted", func(t *testing.T) {

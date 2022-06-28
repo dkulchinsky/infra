@@ -548,6 +548,10 @@
                   "pattern": "[\\da-zA-HJ-NP-Z]{1,11}",
                   "type": "string"
                 },
+                "kind": {
+                  "example": "oidc",
+                  "type": "string"
+                },
                 "name": {
                   "example": "okta",
                   "type": "string"
@@ -694,6 +698,10 @@
             "pattern": "[\\da-zA-HJ-NP-Z]{1,11}",
             "type": "string"
           },
+          "kind": {
+            "example": "oidc",
+            "type": "string"
+          },
           "name": {
             "example": "okta",
             "type": "string"
@@ -777,7 +785,7 @@
       "url": "https://www.elastic.co/licensing/elastic-license"
     },
     "title": "Infra API",
-    "version": "0.13.4+dev"
+    "version": "0.13.6+dev"
   },
   "paths": {
     "/api/access-keys": {
@@ -2215,6 +2223,90 @@
       }
     },
     "/api/groups/{id}": {
+      "delete": {
+        "description": "DeleteGroup",
+        "operationId": "DeleteGroup",
+        "parameters": [
+          {
+            "example": "4yJ3n3D8E2",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "4yJ3n3D8E2",
+              "format": "uid",
+              "pattern": "[\\da-zA-HJ-NP-Z]{1,11}",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized: Requestor is not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden: Requestor does not have the right permissions"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Duplicate Record"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "DeleteGroup",
+        "tags": [
+          "Groups"
+        ]
+      },
       "get": {
         "description": "GetGroup",
         "operationId": "GetGroup",
@@ -2297,6 +2389,122 @@
         "summary": "GetGroup",
         "tags": [
           "Groups"
+        ]
+      }
+    },
+    "/api/groups/{id}/users": {
+      "patch": {
+        "description": "UpdateUsersInGroup",
+        "operationId": "UpdateUsersInGroup",
+        "parameters": [
+          {
+            "example": "4yJ3n3D8E2",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "example": "4yJ3n3D8E2",
+              "format": "uid",
+              "pattern": "[\\da-zA-HJ-NP-Z]{1,11}",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "usersToAdd": {
+                    "items": {
+                      "example": "4yJ3n3D8E2",
+                      "format": "uid",
+                      "pattern": "[\\da-zA-HJ-NP-Z]{1,11}",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "usersToRemove": {
+                    "items": {
+                      "example": "4yJ3n3D8E2",
+                      "format": "uid",
+                      "pattern": "[\\da-zA-HJ-NP-Z]{1,11}",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized: Requestor is not authenticated"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden: Requestor does not have the right permissions"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Duplicate Record"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmptyResponse"
+                }
+              }
+            },
+            "description": "Success"
+          }
+        },
+        "summary": "UpdateUsersInGroup",
+        "tags": [
+          "Groups",
+          "Users"
         ]
       }
     },
@@ -2611,6 +2819,16 @@
                     "example": "jmda5eG93ax3jMDxTGrbHd_TBGT6kgNZtrCugLbU",
                     "type": "string"
                   },
+                  "kind": {
+                    "enum": [
+                      "oidc",
+                      "okta",
+                      "azure",
+                      "google"
+                    ],
+                    "example": "oidc",
+                    "type": "string"
+                  },
                   "name": {
                     "example": "okta",
                     "type": "string"
@@ -2896,6 +3114,16 @@
                   },
                   "clientSecret": {
                     "example": "jmda5eG93ax3jMDxTGrbHd_TBGT6kgNZtrCugLbU",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "oidc",
+                      "okta",
+                      "azure",
+                      "google"
+                    ],
+                    "example": "oidc",
                     "type": "string"
                   },
                   "name": {
@@ -3356,9 +3584,6 @@
                   "name": {
                     "format": "email",
                     "type": "string"
-                  },
-                  "setOneTimePassword": {
-                    "type": "boolean"
                   }
                 },
                 "required": [

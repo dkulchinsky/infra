@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 	"unicode"
 
@@ -93,6 +94,15 @@ func NewPostgresDriver(connection string) (gorm.Dialector, error) {
 	return postgres.Open(connection), nil
 }
 
+func getDefaultSortFromType(t interface{}) string {
+	ty := reflect.TypeOf(t).Elem()
+	if _, ok := ty.FieldByName("Name"); ok {
+		return "name ASC"
+	}
+
+	return "id ASC"
+}
+
 func get[T models.Modelable](db *gorm.DB, selectors ...SelectorFunc) (*T, error) {
 	for _, selector := range selectors {
 		db = selector(db)
@@ -111,6 +121,7 @@ func get[T models.Modelable](db *gorm.DB, selectors ...SelectorFunc) (*T, error)
 }
 
 func list[T models.Modelable](db *gorm.DB, selectors ...SelectorFunc) ([]T, error) {
+	db = db.Order(getDefaultSortFromType((*T)(nil)))
 	for _, selector := range selectors {
 		db = selector(db)
 	}
@@ -194,11 +205,23 @@ func handleError(err error) error {
 		})
 
 		// fields = [UNIQUE, constraint, failed:, <table>, column>]
-		if len(fields) == 5 {
-			return UniqueConstraintError{Table: fields[3], Column: fields[4]}
-		}
+		switch len(fields) {
+		case 5, 7, 9, 11:
+			col := fields[4]
+			i := 6
+			for i < len(fields) {
+				col += fields[i]
+				i += 2
+			}
+			return UniqueConstraintError{
+				Table:  fields[3],
+				Column: col,
+			}
+		default:
+			logging.S.Warnf("unhandled unique constraint error format: %q", err.Error())
 
-		return UniqueConstraintError{}
+			return UniqueConstraintError{}
+		}
 	}
 
 	return err
@@ -238,6 +261,13 @@ func InfraProvider(db *gorm.DB) *models.Provider {
 	if infraProviderCache == nil {
 		infra, err := get[models.Provider](db, ByName(models.InternalInfraProviderName))
 		if err != nil {
+			if errors.Is(err, internal.ErrNotFound) {
+				p := &models.Provider{Name: models.InternalInfraProviderName}
+				if err := add(db, p); err != nil {
+					logging.S.Panic(err)
+				}
+				return p
+			}
 			logging.S.Panic(err)
 			return nil
 		}

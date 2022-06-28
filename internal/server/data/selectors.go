@@ -1,6 +1,7 @@
 package data
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -130,9 +131,17 @@ func ByNotExpired() SelectorFunc {
 	}
 }
 
+func ByNotExpiredOrExtended() SelectorFunc {
+	return func(db *gorm.DB) *gorm.DB {
+		query := strings.Builder{}
+		query.WriteString("(expires_at > ? OR expires_at is ? OR expires_at is null) AND ")
+		query.WriteString("(extension_deadline > ? OR extension_deadline is ? OR extension_deadline is null)")
+		return db.Where(query.String(), time.Now().UTC(), time.Time{}, time.Now().UTC(), time.Time{})
+	}
+}
+
 func ByPagination(pg models.Pagination) SelectorFunc {
 	return func(db *gorm.DB) *gorm.DB {
-
 		if pg.Page == 0 && pg.Limit == 0 {
 			return db
 		}
@@ -176,5 +185,16 @@ func NotName(name string) SelectorFunc {
 func NotPrivilege(privilege string) SelectorFunc {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Not("privilege = ?", privilege)
+	}
+}
+
+func ByOptionalIdentityGroupID(groupID uid.ID) SelectorFunc {
+	return func(db *gorm.DB) *gorm.DB {
+		if groupID == 0 {
+			return db
+		}
+		return db.
+			Joins("join identities_groups on identities_groups.identity_id = id").
+			Where("identities_groups.group_id = ?", groupID)
 	}
 }
