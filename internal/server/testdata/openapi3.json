@@ -1352,6 +1352,9 @@
                     "type": "object"
                   },
                   "name": {
+                    "format": "[a-zA-Z0-9\\-_.]",
+                    "maxLength": 256,
+                    "minLength": 3,
                     "type": "string"
                   },
                   "resources": {
@@ -1687,6 +1690,9 @@
                     "type": "object"
                   },
                   "name": {
+                    "format": "[a-zA-Z0-9\\-_.]",
+                    "maxLength": 256,
+                    "minLength": 3,
                     "type": "string"
                   },
                   "resources": {
