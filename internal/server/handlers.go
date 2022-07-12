@@ -237,6 +237,12 @@ func (a *API) CreateProvider(c *gin.Context, r *api.CreateProviderRequest) (*api
 		return nil, err
 	}
 
+	if r.API != nil {
+		provider.PrivateKey = models.EncryptedAtRest(r.API.PrivateKey)
+		provider.ClientEmail = r.API.ClientEmail
+		provider.DomainAdmin = r.API.DomainAdmin
+	}
+
 	if err := access.CreateProvider(c, provider); err != nil {
 		return nil, err
 	}
@@ -263,6 +269,12 @@ func (a *API) UpdateProvider(c *gin.Context, r *api.UpdateProviderRequest) (*api
 
 	if err := a.setProviderInforFromServer(c, provider); err != nil {
 		return nil, err
+	}
+
+	if r.API != nil {
+		provider.ClientEmail = r.API.ClientEmail
+		provider.DomainAdmin = r.API.DomainAdmin
+		provider.PrivateKey = models.EncryptedAtRest(r.API.PrivateKey)
 	}
 
 	if err := access.SaveProvider(c, provider); err != nil {
@@ -347,8 +359,8 @@ func (a *API) CreateToken(c *gin.Context, r *api.EmptyRequest) (*api.CreateToken
 	if access.AuthenticatedIdentity(c) != nil {
 		err := a.UpdateIdentityInfoFromProvider(c)
 		if err != nil {
-			// TODO: why would this fail? seems like this should be a 5xx error
-			return nil, fmt.Errorf("update ident info from provider: %w", err)
+			// this will fail if the user was removed from the IDP, which means they no longer are a valid user
+			return nil, fmt.Errorf("%w: failed to update identity info from provider: %s", internal.ErrUnauthorized, err)
 		}
 
 		token, err := access.CreateToken(c)
@@ -468,7 +480,6 @@ func (a *API) CreateGrant(c *gin.Context, r *api.CreateGrantRequest) (*api.Creat
 
 	if errors.As(err, &ucerr) {
 		grants, err := access.ListGrants(c, grant.Subject, grant.Resource, grant.Privilege, false, &models.Pagination{})
-
 		if err != nil {
 			return nil, err
 		}
@@ -485,7 +496,6 @@ func (a *API) CreateGrant(c *gin.Context, r *api.CreateGrantRequest) (*api.Creat
 	}
 
 	return &api.CreateGrantResponse{Grant: grant.ToAPI(), WasCreated: true}, nil
-
 }
 
 func (a *API) DeleteGrant(c *gin.Context, r *api.Resource) (*api.EmptyResponse, error) {
@@ -648,7 +658,13 @@ func (a *API) providerClient(c *gin.Context, provider *models.Provider, redirect
 		return nil, fmt.Errorf("client secret not found")
 	}
 
-	return providers.NewOIDCClient(*provider, clientSecret, redirectURL), nil
+	apiPrivateKey, err := secrets.GetSecret(string(provider.PrivateKey), a.server.secrets)
+	if err != nil {
+		logging.Debugf("could not get api private key secret: %s", err)
+		// this is not always set so we continue on error
+	}
+
+	return providers.NewOIDCClient(*provider, clientSecret, apiPrivateKey, redirectURL), nil
 }
 
 // setProviderInfoFromServer checks information provided by an OIDC server

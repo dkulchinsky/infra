@@ -30,6 +30,11 @@ type Provider struct {
 	Kind         string
 	AuthURL      string
 	Scopes       []string
+
+	// fields used to directly query an external API
+	PrivateKey  string
+	ClientEmail string
+	DomainAdmin string
 }
 
 type Grant struct {
@@ -620,12 +625,16 @@ func (Server) loadProvider(db *gorm.DB, input Provider) (*models.Provider, error
 			Scopes:       input.Scopes,
 			Kind:         kind,
 			CreatedBy:    models.CreatedBySystem,
+
+			PrivateKey:  models.EncryptedAtRest(input.PrivateKey),
+			ClientEmail: input.ClientEmail,
+			DomainAdmin: input.DomainAdmin,
 		}
 
 		if provider.Kind != models.ProviderKindInfra {
 			// only call the provider to resolve info if it is not known
 			if input.AuthURL == "" && len(input.Scopes) == 0 {
-				providerClient := providers.NewOIDCClient(*provider, input.ClientSecret, "http://localhost:8301")
+				providerClient := providers.NewOIDCClient(*provider, input.ClientSecret, input.PrivateKey, "http://localhost:8301")
 				authServerInfo, err := providerClient.AuthServerInfo(context.Background())
 				if err != nil {
 					if errors.Is(err, context.DeadlineExceeded) {

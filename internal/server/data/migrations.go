@@ -588,7 +588,7 @@ func addAuthURLAndScopeToProviders() *gormigrate.Migration {
 
 					logging.Debugf("migrating %s provider", providerModels[i].Name)
 
-					providerClient := providers.NewOIDCClient(providerModels[i], "not-used", "http://localhost:8301")
+					providerClient := providers.NewOIDCClient(providerModels[i], "not-used", "not-used", "http://localhost:8301")
 					authServerInfo, err := providerClient.AuthServerInfo(context.Background())
 					if err != nil {
 						if errors.Is(err, context.DeadlineExceeded) {
