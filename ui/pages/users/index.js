@@ -18,6 +18,7 @@ import RoleSelect from '../../components/role-select'
 const columns = [
   {
     Header: 'Name',
+    width: '50%',
     accessor: u => u,
     Cell: ({ value: user }) => (
       <div className='flex items-center py-1.5'>
@@ -30,6 +31,7 @@ const columns = [
   },
   {
     Header: 'Last Seen',
+    width: '25%',
     accessor: u => u,
     Cell: ({ value: user }) => (
       <div className='text-name text-gray-400'>
@@ -39,6 +41,7 @@ const columns = [
   },
   {
     Header: 'Added',
+    width: '25%',
     accessor: u => u,
     Cell: ({ value: user }) => (
       <div className='text-name text-gray-400'>
@@ -244,7 +247,7 @@ export default function Users() {
           </div>
           {selected && (
             <Sidebar
-              handleClose={() => setSelected(null)}
+              onClose={() => setSelected(null)}
               title={selected.name}
               profileIcon={selected.name[0]}
             >

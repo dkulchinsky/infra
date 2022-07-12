@@ -35,6 +35,11 @@ func Run(ctx context.Context, args ...string) error {
 }
 
 func mustBeLoggedIn() error {
+	if _, ok := os.LookupEnv("INFRA_ACCESS_KEY"); ok {
+		// user doesn't need to log in if supplying an access key
+		return nil
+	}
+
 	config, err := currentHostConfig()
 	if err != nil {
 		if errors.Is(err, ErrConfigNotFound) {
@@ -78,7 +83,18 @@ func defaultAPIClient() (*api.Client, error) {
 		return nil, err
 	}
 
-	return apiClient(config.Host, config.AccessKey, httpTransportForHostConfig(config)), nil
+	server := config.Host
+	accessKey := config.AccessKey
+
+	if envAccessKey, ok := os.LookupEnv("INFRA_ACCESS_KEY"); ok {
+		accessKey = envAccessKey
+	}
+
+	if envServer, ok := os.LookupEnv("INFRA_SERVER"); ok {
+		server = envServer
+	}
+
+	return apiClient(server, accessKey, httpTransportForHostConfig(config)), nil
 }
 
 func apiClient(host string, accessKey string, transport *http.Transport) *api.Client {
@@ -97,14 +113,14 @@ func apiClient(host string, accessKey string, transport *http.Transport) *api.Cl
 func httpTransportForHostConfig(config *ClientHostConfig) *http.Transport {
 	pool, err := x509.SystemCertPool()
 	if err != nil {
-		logging.S.Warnf("Failed to load trusted certificates from system: %v", err)
+		logging.Warnf("Failed to load trusted certificates from system: %v", err)
 		pool = x509.NewCertPool()
 	}
 
 	if config.TrustedCertificate != "" {
 		ok := pool.AppendCertsFromPEM([]byte(config.TrustedCertificate))
 		if !ok {
-			logging.S.Warnf("Failed to read trusted certificates for server")
+			logging.Warnf("Failed to read trusted certificates for server")
 		}
 	}
 
@@ -117,7 +133,7 @@ func httpTransportForHostConfig(config *ClientHostConfig) *http.Transport {
 	}
 }
 
-func newUseCmd(_ *CLI) *cobra.Command {
+func newUseCmd(cli *CLI) *cobra.Command {
 	return &cobra.Command{
 		Use:   "use DESTINATION",
 		Short: "Access a destination",
@@ -187,7 +203,7 @@ func newConnectorCmd() *cobra.Command {
 		Args:   NoArgs,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			logging.SetServerLogger()
+			logging.UseServerLogger()
 
 			options := defaultConnectorOptions()
 			err := cliopts.Load(&options, cliopts.Options{
@@ -292,7 +308,7 @@ func addNonInteractiveFlag(flags *pflag.FlagSet, bind *bool) {
 }
 
 func addFormatFlag(flags *pflag.FlagSet, bind *string) {
-	flags.StringVar(bind, "format", "", "Output format [json]")
+	flags.StringVar(bind, "format", "", "Output format [json|yaml]")
 }
 
 func usageTemplate() string {

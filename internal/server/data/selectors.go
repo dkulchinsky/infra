@@ -140,13 +140,14 @@ func ByNotExpiredOrExtended() SelectorFunc {
 	}
 }
 
-func ByPagination(pg models.Pagination) SelectorFunc {
+func ByPagination(p models.Pagination) SelectorFunc {
 	return func(db *gorm.DB) *gorm.DB {
-		if pg.Page == 0 && pg.Limit == 0 {
+
+		if p.Page == 0 && p.Limit == 0 {
 			return db
 		}
-		resultsForPage := pg.Limit * (pg.Page - 1)
-		return db.Offset(resultsForPage).Limit(pg.Limit)
+		resultsForPage := p.Limit * (p.Page - 1)
+		return db.Offset(resultsForPage).Limit(p.Limit)
 	}
 }
 
@@ -179,6 +180,18 @@ func NotCreatedBy(id uid.ID) SelectorFunc {
 func NotName(name string) SelectorFunc {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Not("name = ?", name)
+	}
+}
+
+func NotProviderKind(kind models.ProviderKind) SelectorFunc {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Not("kind = ?", kind)
+	}
+}
+
+func ByProviderKind(kind models.ProviderKind) SelectorFunc {
+	return func(db *gorm.DB) *gorm.DB {
+		return db.Where("kind = ?", kind)
 	}
 }
 

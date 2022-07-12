@@ -18,12 +18,12 @@ func TestAPI_ListProviders(t *testing.T) {
 	s := setupServer(t, withAdminUser)
 	routes := s.GenerateRoutes(prometheus.NewRegistry())
 
-	testProvider := &models.Provider{Name: "mokta"}
+	testProvider := &models.Provider{Name: "mokta", Kind: models.ProviderKindOkta}
 
 	err := data.CreateProvider(s.db, testProvider)
 	assert.NilError(t, err)
 
-	dbProviders, err := data.ListProviders(s.db)
+	dbProviders, err := data.ListProviders(s.db, &models.Pagination{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(dbProviders), 2)
 
@@ -52,7 +52,7 @@ func TestAPI_DeleteProvider(t *testing.T) {
 
 	createProvider := func(t *testing.T) *models.Provider {
 		t.Helper()
-		p := &models.Provider{Name: "mokta"}
+		p := &models.Provider{Name: "mokta", Kind: models.ProviderKindOkta}
 		err := data.CreateProvider(srv.db, p)
 		assert.NilError(t, err)
 		return p

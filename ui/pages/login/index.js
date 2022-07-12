@@ -2,10 +2,9 @@ import { useRouter } from 'next/router'
 import { useState } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
 
-import { kind } from '../../lib/providers'
 import LoginLayout from '../../components/layouts/login'
 
-function oidcLogin({ id, url, clientID }) {
+function oidcLogin({ id, clientID, authURL, scopes }) {
   window.localStorage.setItem('providerID', id)
 
   const state = [...Array(10)]
@@ -16,37 +15,34 @@ function oidcLogin({ id, url, clientID }) {
   const redirectURL = window.location.origin + '/login/callback'
   window.localStorage.setItem('redirectURL', redirectURL)
 
-  document.location.href = `https://${url}/oauth2/v1/authorize?redirect_uri=${redirectURL}&client_id=${clientID}&response_type=code&scope=openid+email+groups+offline_access&state=${state}`
+  document.location.href = `${authURL}?redirect_uri=${redirectURL}&client_id=${clientID}&response_type=code&scope=${scopes.join(
+    '+'
+  )}&state=${state}`
 }
+
+const KIND_OKTA = 'okta'
 
 function Providers({ providers }) {
   return (
     <>
       <div className='mt-2 w-full max-w-sm'>
-        {providers?.map(p => (
+        {providers.map(p => (
           <button
             onClick={() => oidcLogin(p)}
             key={p.id}
-            className='my-1.5 w-full rounded-md border border-gray-800 p-0.5 hover:to-pink-50'
+            title={`${p.name} — ${p.url}`}
+            className='my-1.5 flex w-full flex-row items-center justify-center rounded-md border border-gray-700 px-4 py-3 hover:hover:border-gray-600'
           >
-            <div className='flex flex-col items-center justify-center px-4 py-2'>
-              {kind(p.url) ? (
-                <div className='flex flex-col items-center py-0.5 text-center'>
-                  <img
-                    alt='identity provider icon'
-                    className='h-4'
-                    src={`/providers/${kind(p.url)}.svg`}
-                  />
-                  {providers?.length > 1 && (
-                    <div className='text-2xs text-gray-300'>
-                      {p.name} - ({p.url})
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className='m-1 h-4 font-bold'>Single Sign-On</p>
-              )}
-            </div>
+            <img
+              alt='identity provider icon'
+              className='h-4'
+              src={`/providers/${p.kind}.svg`}
+            />
+            {p.kind !== KIND_OKTA && (
+              <span className='relative pl-2 text-sm font-semibold leading-none'>
+                Single Sign-On
+              </span>
+            )}
           </button>
         ))}
       </div>

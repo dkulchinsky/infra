@@ -139,7 +139,7 @@ func TestAPI_ListGroups(t *testing.T) {
 				err := json.NewDecoder(resp.Body).Decode(&actual)
 				assert.NilError(t, err)
 				assert.Equal(t, len(actual.Items), 1)
-				assert.Equal(t, api.PaginationResponse{Page: 2, Limit: 2}, actual.PaginationInfo)
+				assert.Equal(t, api.PaginationResponse{Page: 2, Limit: 2, TotalCount: 3, TotalPages: 2}, actual.PaginationResponse)
 			},
 		},
 		"authorized by group membership": {
@@ -188,7 +188,6 @@ func TestAPI_ListGroups(t *testing.T) {
 
 				expected := jsonUnmarshal(t, fmt.Sprintf(`
 {
-	"pagination_info": {},
 	"count": 2,
 	"items": [{
 		"id": "%[1]v",
@@ -221,7 +220,6 @@ func TestAPI_ListGroups(t *testing.T) {
 
 				expected := jsonUnmarshal(t, fmt.Sprintf(`
 {
-	"pagination_info":{},
 	"count": 1,
 	"items": [{
 		"id": "%[1]v",
@@ -379,7 +377,7 @@ func TestAPI_DeleteGroup(t *testing.T) {
 			},
 			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
 				assert.Equal(t, resp.Code, http.StatusNoContent, resp.Body.String())
-				actual, err := data.ListGroups(srv.db, data.ByID(humans.ID))
+				actual, err := data.ListGroups(srv.db, &models.Pagination{}, data.ByID(humans.ID))
 				assert.NilError(t, err)
 				assert.Equal(t, len(actual), 0)
 			},
@@ -456,7 +454,7 @@ func TestAPI_UpdateUsersInGroup(t *testing.T) {
 			},
 			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
 				assert.Equal(t, resp.Code, http.StatusOK, resp.Body.String())
-				idents, err := data.ListIdentities(srv.db, []data.SelectorFunc{data.ByOptionalIdentityGroupID(humans.ID)}...)
+				idents, err := data.ListIdentities(srv.db, &models.Pagination{}, []data.SelectorFunc{data.ByOptionalIdentityGroupID(humans.ID)}...)
 				assert.NilError(t, err)
 				assert.DeepEqual(t, idents, []models.Identity{first, second}, cmpModelsIdentityShallow)
 			},
@@ -473,12 +471,36 @@ func TestAPI_UpdateUsersInGroup(t *testing.T) {
 			},
 			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
 				assert.Equal(t, resp.Code, http.StatusOK, resp.Body.String())
-				idents, err := data.ListIdentities(srv.db, []data.SelectorFunc{data.ByOptionalIdentityGroupID(humans.ID)}...)
+				idents, err := data.ListIdentities(srv.db, &models.Pagination{}, []data.SelectorFunc{data.ByOptionalIdentityGroupID(humans.ID)}...)
 				assert.NilError(t, err)
 				assert.Assert(t, len(idents) == 0)
 			},
 			body: api.UpdateUsersInGroupRequest{
 				UserIDsToRemove: []uid.ID{first.ID, second.ID},
+			},
+		},
+		"add unknown user": {
+			urlPath: fmt.Sprintf("/api/groups/%s/users", humans.ID.String()),
+			setup: func(t *testing.T, req *http.Request) {
+				req.Header.Set("Authorization", "Bearer "+adminAccessKey(srv))
+			},
+			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
+				assert.Equal(t, resp.Code, http.StatusBadRequest, resp.Body.String())
+			},
+			body: api.UpdateUsersInGroupRequest{
+				UserIDsToAdd: []uid.ID{first.ID, 1337, second.ID},
+			},
+		},
+		"remove unknown user": {
+			urlPath: fmt.Sprintf("/api/groups/%s/users", humans.ID.String()),
+			setup: func(t *testing.T, req *http.Request) {
+				req.Header.Set("Authorization", "Bearer "+adminAccessKey(srv))
+			},
+			expected: func(t *testing.T, resp *httptest.ResponseRecorder) {
+				assert.Equal(t, resp.Code, http.StatusBadRequest, resp.Body.String())
+			},
+			body: api.UpdateUsersInGroupRequest{
+				UserIDsToRemove: []uid.ID{1337},
 			},
 		},
 	}

@@ -37,9 +37,17 @@ function Details({ destination, onDelete }) {
     parent(resource) ? `/api/grants?resource=${parent(resource)}` : null
   )
 
-  const connectable = grants?.find(
+  const showConnect = grants?.find(
     g => g.user === auth?.id || usergroups.some(ug => ug.id === g.group)
   )
+
+  const usergrants = [...(grants || []), ...(inherited || [])]?.filter(
+    g => g.user === auth?.id || usergroups.some(ug => ug.id === g.group)
+  )
+  const userroles = [
+    ...new Set(usergrants?.sort(sortByPrivilege)?.map(ug => ug.privilege)),
+  ]
+
   const empty =
     grants?.length === 0 && (parent(resource) ? inherited?.length === 0 : true)
 
@@ -102,6 +110,10 @@ function Details({ destination, onDelete }) {
                       mutate({ items: grants.filter(x => x.id !== g.id) })
                     }}
                     onChange={async privilege => {
+                      if (privilege === g.privilege) {
+                        return
+                      }
+
                       const res = await fetch('/api/grants', {
                         method: 'POST',
                         body: JSON.stringify({
@@ -152,12 +164,12 @@ function Details({ destination, onDelete }) {
           </div>
         </section>
       )}
-      {connectable && (
+      {showConnect && (
         <section>
           <h3 className='border-b border-gray-800 py-4 text-3xs uppercase text-gray-400'>
             Connect
           </h3>
-          <p className='my-4 text-2xs'>
+          <p className='my-4 text-2xs leading-normal'>
             Connect to this {destination?.kind || 'resource'} via the{' '}
             <a
               target='_blank'
@@ -167,6 +179,9 @@ function Details({ destination, onDelete }) {
             >
               Infra CLI
             </a>
+            . You have{' '}
+            <span className='font-semibold'>{userroles.join(', ')}</span>{' '}
+            access.
           </p>
           <pre className='overflow-auto rounded-md bg-gray-900 px-4 py-3 text-2xs leading-normal text-gray-300'>
             infra login {window.location.host}
@@ -205,6 +220,12 @@ function Details({ destination, onDelete }) {
                 ? dayjs(destination.updated).fromNow()
                 : '-'}
             </div>
+          </div>
+          <div className='flex flex-row items-center'>
+            <div className='w-1/3 text-2xs text-gray-400'>
+              Connector Version
+            </div>
+            <div className='text-2xs'>{destination.version || '-'}</div>
           </div>
         </div>
       </section>
@@ -247,9 +268,10 @@ const columns = [
   {
     Header: 'Name',
     accessor: 'name',
+    width: '55%',
     Cell: ({ row, value }) => {
       return (
-        <div className='flex items-center py-2'>
+        <div className='flex truncate py-2'>
           {row.canExpand && (
             <span
               {...row.getToggleRowExpandedProps({
@@ -275,12 +297,12 @@ const columns = [
             </span>
           )}
           <span
-            {...row.getToggleRowExpandedProps()}
-            className={`flex items-center ${row.depth === 0 ? 'h-6' : ''} ${
-              row.canExpand ? '' : 'pl-9'
-            }`}
+            title={value}
+            className={`flex flex-1 items-center truncate ${
+              row.depth === 0 ? 'h-6' : ''
+            } ${row.canExpand ? '' : 'pl-9'}`}
           >
-            {value}
+            <span className='truncate'>{value}</span>
           </span>
         </div>
       )
@@ -289,11 +311,32 @@ const columns = [
   {
     Header: 'Kind',
     accessor: v => v,
-    width: '25%',
+    width: '20%',
     Cell: ({ value }) => (
       <span className='rounded bg-gray-800 px-2 py-0.5 text-gray-400'>
         {value.kind}
       </span>
+    ),
+  },
+  {
+    Header: 'Status',
+    accessor: v => v,
+    width: '25%',
+    Cell: ({ value }) => (
+      <div className='flex items-center py-2'>
+        {value.kind === 'cluster' && (
+          <>
+            <div
+              className={`h-2 w-2 flex-none rounded-full ${
+                value.connected ? 'bg-green-400' : 'bg-gray-600'
+              }`}
+            />
+            <span className='flex-none px-2 text-gray-400'>
+              {value.connected ? 'Connected' : 'Disconnected'}
+            </span>
+          </>
+        )}
+      </div>
     ),
   },
 ]
@@ -333,7 +376,7 @@ export default function Destinations() {
       </Head>
       {!loading && (
         <div className='flex h-full flex-1'>
-          <div className='flex flex-1 flex-col space-y-4'>
+          <div className='flex min-w-[32em] flex-1 flex-col space-y-4'>
             <PageHeader
               header='Clusters'
               buttonHref={admin && '/destinations/add'}
@@ -349,10 +392,7 @@ export default function Destinations() {
                   columns={columns}
                   data={data}
                   getRowProps={row => ({
-                    onClick: () => {
-                      setSelected(row.original)
-                      row.toggleRowExpanded(true)
-                    },
+                    onClick: () => setSelected(row.original),
                     className:
                       selected?.resource === row.original.resource
                         ? 'bg-gray-900/50'
@@ -373,7 +413,7 @@ export default function Destinations() {
           </div>
           {selected && (
             <Sidebar
-              handleClose={() => setSelected(null)}
+              onClose={() => setSelected(null)}
               title={selected.resource}
               iconPath='/destinations.svg'
             >

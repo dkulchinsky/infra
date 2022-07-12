@@ -15,8 +15,8 @@ func GetGroup(db *gorm.DB, selectors ...SelectorFunc) (*models.Group, error) {
 	return get[models.Group](db, selectors...)
 }
 
-func ListGroups(db *gorm.DB, selectors ...SelectorFunc) ([]models.Group, error) {
-	return list[models.Group](db, selectors...)
+func ListGroups(db *gorm.DB, p *models.Pagination, selectors ...SelectorFunc) ([]models.Group, error) {
+	return list[models.Group](db, p, selectors...)
 }
 
 func ByGroupMember(id uid.ID) SelectorFunc {
@@ -28,7 +28,7 @@ func ByGroupMember(id uid.ID) SelectorFunc {
 }
 
 func DeleteGroups(db *gorm.DB, selectors ...SelectorFunc) error {
-	toDelete, err := ListGroups(db, selectors...)
+	toDelete, err := ListGroups(db, &models.Pagination{}, selectors...)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func DeleteGroups(db *gorm.DB, selectors ...SelectorFunc) error {
 			return err
 		}
 
-		identities, err := ListIdentities(db, []SelectorFunc{ByOptionalIdentityGroupID(g.ID)}...)
+		identities, err := ListIdentities(db, &models.Pagination{}, []SelectorFunc{ByOptionalIdentityGroupID(g.ID)}...)
 		if err != nil {
 			return err
 		}
@@ -62,7 +62,9 @@ func DeleteGroups(db *gorm.DB, selectors ...SelectorFunc) error {
 
 func AddUsersToGroup(db *gorm.DB, groupID uid.ID, idsToAdd []uid.ID) error {
 	for _, id := range idsToAdd {
-		err := db.Exec("INSERT INTO identities_groups (group_id, identity_id) select ?, ? WHERE NOT EXISTS (SELECT 1 FROM identities_groups WHERE group_id = ? AND identity_id = ?)", groupID, id, groupID, id).Error
+		// This is effectively an "INSERT OR IGNORE" or "INSERT ... ON CONFLICT ... DO NOTHING" statement which
+		// works across both sqlite and postgres
+		err := db.Exec("INSERT INTO identities_groups (group_id, identity_id) SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM identities_groups WHERE group_id = ? AND identity_id = ?)", groupID, id, groupID, id).Error
 		if err != nil {
 			return err
 		}

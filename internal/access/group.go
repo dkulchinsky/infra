@@ -2,9 +2,13 @@ package access
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
+	"github.com/infrahq/infra/internal"
 	"github.com/infrahq/infra/internal/server/data"
 	"github.com/infrahq/infra/internal/server/models"
 	"github.com/infrahq/infra/uid"
@@ -21,8 +25,8 @@ func isUserInGroup(c *gin.Context, requestedResourceID uid.ID) (bool, error) {
 	return false, nil
 }
 
-func ListGroups(c *gin.Context, name string, userID uid.ID, pg models.Pagination) ([]models.Group, error) {
-	var selectors = []data.SelectorFunc{data.ByPagination(pg)}
+func ListGroups(c *gin.Context, name string, userID uid.ID, p *models.Pagination) ([]models.Group, error) {
+	var selectors []data.SelectorFunc = []data.SelectorFunc{}
 	if name != "" {
 		selectors = append(selectors, data.ByName(name))
 	}
@@ -33,7 +37,7 @@ func ListGroups(c *gin.Context, name string, userID uid.ID, pg models.Pagination
 	roles := []string{models.InfraAdminRole, models.InfraViewRole, models.InfraConnectorRole}
 	db, err := RequireInfraRole(c, roles...)
 	if err == nil {
-		return data.ListGroups(db, selectors...)
+		return data.ListGroups(db, p, selectors...)
 	}
 	err = HandleAuthErr(err, "groups", "list", roles...)
 
@@ -45,7 +49,7 @@ func ListGroups(c *gin.Context, name string, userID uid.ID, pg models.Pagination
 		case identity == nil:
 			return nil, err
 		case userID == identity.ID:
-			return data.ListGroups(db, selectors...)
+			return data.ListGroups(db, p, selectors...)
 		}
 	}
 
@@ -84,6 +88,33 @@ func DeleteGroup(c *gin.Context, id uid.ID) error {
 	return data.DeleteGroups(db, selectors...)
 }
 
+func checkIdentitiesInList(db *gorm.DB, ids []uid.ID) ([]uid.ID, error) {
+	identities, err := data.ListIdentities(db, &models.Pagination{}, data.ByIDs(ids))
+	if err != nil {
+		return nil, err
+	}
+
+	// return the original list if we found all of the IDs
+	if len(identities) == len(ids) {
+		return ids, nil
+	}
+
+	uidMap := make(map[uid.ID]bool)
+	for _, ident := range identities {
+		uidMap[ident.ID] = true
+	}
+
+	var uidStrList []string
+	for _, id := range ids {
+		_, ok := uidMap[id]
+		if !ok {
+			uidStrList = append(uidStrList, id.String())
+		}
+	}
+
+	return nil, fmt.Errorf("%w: %s", internal.ErrBadRequest, "Couldn't find UIDs: "+strings.Join(uidStrList, ","))
+}
+
 func UpdateUsersInGroup(c *gin.Context, groupID uid.ID, uidsToAdd []uid.ID, uidsToRemove []uid.ID) error {
 	db, err := RequireInfraRole(c, models.InfraAdminRole)
 	if err != nil {
@@ -95,23 +126,19 @@ func UpdateUsersInGroup(c *gin.Context, groupID uid.ID, uidsToAdd []uid.ID, uids
 		return err
 	}
 
-	for _, userID := range uidsToAdd {
-		_, err := data.GetIdentity(db, data.ByID(userID))
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, userID := range uidsToRemove {
-		_, err := data.GetIdentity(db, data.ByID(userID))
-		if err != nil {
-			return err
-		}
-	}
-
-	err = data.AddUsersToGroup(db, groupID, uidsToAdd)
+	addIDList, err := checkIdentitiesInList(db, uidsToAdd)
 	if err != nil {
 		return err
 	}
-	return data.RemoveUsersFromGroup(db, groupID, uidsToRemove)
+
+	rmIDList, err := checkIdentitiesInList(db, uidsToRemove)
+	if err != nil {
+		return err
+	}
+
+	err = data.AddUsersToGroup(db, groupID, addIDList)
+	if err != nil {
+		return err
+	}
+	return data.RemoveUsersFromGroup(db, groupID, rmIDList)
 }

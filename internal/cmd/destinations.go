@@ -5,9 +5,15 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/yaml"
 
 	"github.com/infrahq/infra/api"
 	"github.com/infrahq/infra/internal/logging"
+)
+
+const (
+	DestinationStatusConnected    = "Connected"
+	DestinationStatusDisconnected = "Disconnected"
 )
 
 func newDestinationsCmd(cli *CLI) *cobra.Command {
@@ -43,7 +49,7 @@ func newDestinationsListCmd(cli *CLI) *cobra.Command {
 				return err
 			}
 
-			logging.S.Debug("call server: list destinations")
+			logging.Debugf("call server: list destinations")
 			destinations, err := client.ListDestinations(api.ListDestinationsRequest{})
 			if err != nil {
 				return err
@@ -51,22 +57,37 @@ func newDestinationsListCmd(cli *CLI) *cobra.Command {
 
 			switch format {
 			case "json":
-				jsonOutput, err := json.Marshal(destinations)
+				jsonOutput, err := json.Marshal(destinations.Items)
 				if err != nil {
 					return err
 				}
 				cli.Output(string(jsonOutput))
+			case "yaml":
+				yamlOutput, err := yaml.Marshal(destinations.Items)
+				if err != nil {
+					return err
+				}
+				cli.Output(string(yamlOutput))
 			default:
 				type row struct {
-					Name string `header:"NAME"`
-					URL  string `header:"URL"`
+					Name     string `header:"NAME"`
+					URL      string `header:"URL"`
+					Status   string `header:"STATUS"`
+					LastSeen string `header:"LAST SEEN"`
 				}
 
 				var rows []row
 				for _, d := range destinations.Items {
+					status := DestinationStatusDisconnected
+					if d.Connected {
+						status = DestinationStatusConnected
+					}
+
 					rows = append(rows, row{
-						Name: d.Name,
-						URL:  d.Connection.URL,
+						Name:     d.Name,
+						URL:      d.Connection.URL,
+						Status:   status,
+						LastSeen: HumanTime(d.LastSeen.Time(), "never"),
 					})
 				}
 				if len(rows) > 0 {
@@ -99,11 +120,11 @@ func newDestinationsRemoveCmd(cli *CLI) *cobra.Command {
 				return err
 			}
 
-			logging.S.Debugf("call server: list destinations named %q", name)
+			logging.Debugf("call server: list destinations named %q", name)
 			destinations, err := client.ListDestinations(api.ListDestinationsRequest{Name: name})
 			if err != nil {
 				if api.ErrorStatusCode(err) == 403 {
-					logging.S.Debug(err)
+					logging.Debugf("%s", err.Error())
 					return Error{
 						Message: "Cannot disconnect destination: missing privileges for ListDestinations",
 					}
@@ -115,13 +136,13 @@ func newDestinationsRemoveCmd(cli *CLI) *cobra.Command {
 				return Error{Message: fmt.Sprintf("Destination %q not connected", name)}
 			}
 
-			logging.S.Debugf("deleting %s destinations named %q...", destinations.Count, name)
+			logging.Debugf("deleting %d destinations named %q...", destinations.Count, name)
 			for _, d := range destinations.Items {
-				logging.S.Debugf("...call server: delete destination %s", d.ID)
+				logging.Debugf("...call server: delete destination %s", d.ID)
 				err := client.DeleteDestination(d.ID)
 				if err != nil {
 					if api.ErrorStatusCode(err) == 403 {
-						logging.S.Debug(err)
+						logging.Debugf("%s", err.Error())
 						return Error{
 							Message: "Cannot disconnect destination: missing privileges for DeleteDestination",
 						}

@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"net/url"
 	"runtime"
+	"strconv"
 
 	"github.com/ssoroka/slice"
 
+	"github.com/infrahq/infra/internal/logging"
 	"github.com/infrahq/infra/uid"
 )
 
@@ -105,13 +107,14 @@ func request[Req, Res any](client Client, method string, path string, query Quer
 	req.Header.Set("Infra-Version", apiVersion)
 	req.Header.Set("User-Agent", fmt.Sprintf("Infra/%v (%s %v; %v/%v)", apiVersion, clientName, clientVersion, runtime.GOOS, runtime.GOARCH))
 
+	for k, v := range client.Headers {
+		req.Header[k] = v
+	}
+
 	resp, err := client.HTTP.Do(req)
 	if err != nil {
-		urlErr := &url.Error{}
-		if errors.As(err, &urlErr) {
-			if urlErr.Timeout() {
-				return nil, fmt.Errorf("%w: %s", ErrTimeout, err)
-			}
+		if connError := HandleConnError(err); connError != nil {
+			return nil, connError
 		}
 		return nil, fmt.Errorf("%s %q: %w", method, path, err)
 	}
@@ -130,8 +133,10 @@ func request[Req, Res any](client Client, method string, path string, query Quer
 	}
 
 	var resBody Res
-	if err := json.Unmarshal(body, &resBody); err != nil {
-		return nil, fmt.Errorf("parsing json response: %w. partial text: %q", err, partialText(body, 100))
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &resBody); err != nil {
+			return nil, fmt.Errorf("parsing json response: %w. partial text: %q", err, partialText(body, 100))
+		}
 	}
 
 	return &resBody, nil
@@ -141,51 +146,21 @@ func get[Res any](client Client, path string, query Query) (*Res, error) {
 	return request[EmptyRequest, Res](client, http.MethodGet, path, query, nil)
 }
 
-func post[Req, Res any](client Client, path string, req *Req) (res *Res, err error) {
+func post[Req, Res any](client Client, path string, req *Req) (*Res, error) {
 	return request[Req, Res](client, http.MethodPost, path, Query{}, req)
 }
 
-func put[Req, Res any](client Client, path string, req *Req) (res *Res, err error) {
+func put[Req, Res any](client Client, path string, req *Req) (*Res, error) {
 	return request[Req, Res](client, http.MethodPut, path, Query{}, req)
 }
 
-func patch[Req, Res any](client Client, path string, req *Req) (res *Res, err error) {
+func patch[Req, Res any](client Client, path string, req *Req) (*Res, error) {
 	return request[Req, Res](client, http.MethodPatch, path, Query{}, req)
 }
 
 func delete(client Client, path string) error {
-	req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s%s", client.URL, path), nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Add("Authorization", "Bearer "+client.AccessKey)
-
-	resp, err := client.HTTP.Do(req)
-	if err != nil {
-		urlErr := &url.Error{}
-		if errors.As(err, &urlErr) {
-			if urlErr.Timeout() {
-				return fmt.Errorf("%w: %s", ErrTimeout, err)
-			}
-		}
-		return fmt.Errorf("DELETE %q: %w", path, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("%w: %s", ErrTimeout, err)
-		}
-		return fmt.Errorf("reading response: %w", err)
-	}
-
-	if err := checkError(req, resp, body); err != nil {
-		return err
-	}
-
-	return nil
+	_, err := request[EmptyRequest, EmptyResponse](client, http.MethodDelete, path, Query{}, nil)
+	return err
 }
 
 func (c Client) ListUsers(req ListUsersRequest) (*ListResponse[User], error) {
@@ -267,15 +242,16 @@ func (c Client) DeleteProvider(id uid.ID) error {
 
 func (c Client) ListGrants(req ListGrantsRequest) (*ListResponse[Grant], error) {
 	return get[ListResponse[Grant]](c, "/api/grants", Query{
-		"user":      {req.User.String()},
-		"group":     {req.Group.String()},
-		"resource":  {req.Resource},
-		"privilege": {req.Privilege},
+		"user":          {req.User.String()},
+		"group":         {req.Group.String()},
+		"resource":      {req.Resource},
+		"privilege":     {req.Privilege},
+		"showInherited": {strconv.FormatBool(req.ShowInherited)},
 	})
 }
 
-func (c Client) CreateGrant(req *CreateGrantRequest) (*Grant, error) {
-	return post[CreateGrantRequest, Grant](c, "/api/grants", req)
+func (c Client) CreateGrant(req *CreateGrantRequest) (*CreateGrantResponse, error) {
+	return post[CreateGrantRequest, CreateGrantResponse](c, "/api/grants", req)
 }
 
 func (c Client) DeleteGrant(id uid.ID) error {
@@ -348,4 +324,23 @@ func partialText(body []byte, limit int) string {
 	}
 
 	return string(body[:limit]) + "..."
+}
+
+// HandleConnError translates common connection errors into more informative human
+// readable errors. Returns `nil` if the error was not handled, so it is the callers responsibility to
+// return the original error if `HandleConnError` returns nil.
+func HandleConnError(err error) error {
+	urlErr := &url.Error{}
+	if errors.As(err, &urlErr) {
+		if urlErr.Timeout() {
+			return fmt.Errorf("%w: %s", ErrTimeout, err)
+		}
+	}
+
+	if errors.Is(err, io.EOF) {
+		logging.Debugf("request error: %v", err)
+		return fmt.Errorf("could not reach infra server, please wait a moment and try again")
+	}
+
+	return nil
 }

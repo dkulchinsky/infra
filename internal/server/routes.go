@@ -60,7 +60,10 @@ func (s *Server) GenerateRoutes(promRegistry prometheus.Registerer) Routes {
 	)
 	apiGroup.GET("/.well-known/jwks.json", a.wellKnownJWKsHandler)
 
-	authn := apiGroup.Group("/", AuthenticationMiddleware(a))
+	authn := apiGroup.Group("/",
+		AuthenticationMiddleware(),
+		DestinationMiddleware(),
+	)
 
 	get(a, authn, "/api/users", a.ListUsers)
 	post(a, authn, "/api/users", a.CreateUser)
@@ -185,10 +188,21 @@ func add[Req, Res any](a *API, r *gin.RouterGroup, route route[Req, Res]) {
 			a.t.RouteEvent(c, route.path, Properties{"method": strings.ToLower(route.method)})
 		}
 
-		c.JSON(defaultResponseCodeForMethod(route.method), resp)
+		statusCode := defaultResponseCodeForMethod(route.method)
+		if c, ok := any(resp).(statusCoder); ok {
+			if code := c.StatusCode(); code != 0 {
+				statusCode = code
+			}
+		}
+
+		c.JSON(statusCode, resp)
 	}
 
 	bindRoute(a, r, route.method, route.path, wrappedHandler)
+}
+
+type statusCoder interface {
+	StatusCode() int
 }
 
 var reflectTypeString = reflect.TypeOf("")
@@ -258,7 +272,7 @@ func bind(c *gin.Context, req interface{}) error {
 		}
 	}
 
-	if err := validate.Struct(req); err != nil {
+	if err := pgValidate.Struct(req); err != nil {
 		return err
 	}
 
@@ -307,7 +321,7 @@ func (a *API) notFoundHandler(c *gin.Context) {
 		if _, err := fs.Stat(uiFS, filePath404); err == nil {
 			buf, err = fs.ReadFile(uiFS, filePath404)
 			if err != nil {
-				logging.S.Error(err)
+				logging.Errorf("%s", err.Error())
 			}
 		}
 	}
@@ -315,6 +329,6 @@ func (a *API) notFoundHandler(c *gin.Context) {
 	// the response will default to "404 not found"
 	_, err := c.Writer.Write(buf)
 	if err != nil {
-		logging.S.Error(err)
+		logging.Errorf("%s", err.Error())
 	}
 }

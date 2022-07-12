@@ -9,6 +9,7 @@ import (
 
 	survey "github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/yaml"
 
 	"github.com/infrahq/infra/api"
 	"github.com/infrahq/infra/internal/generate"
@@ -63,7 +64,7 @@ $ infra users add johndoe@example.com`,
 			createResp, err := createUser(client, args[0])
 			if err != nil {
 				if api.ErrorStatusCode(err) == 403 {
-					logging.S.Debug(err)
+					logging.Debugf("%s", err.Error())
 					return Error{
 						Message: "Cannot add users: missing privileges for CreateUser",
 					}
@@ -129,11 +130,11 @@ func newUsersListCmd(cli *CLI) *cobra.Command {
 
 			var rows []row
 
-			logging.S.Debug("call server: list users")
+			logging.Debugf("call server: list users")
 			users, err := client.ListUsers(api.ListUsersRequest{})
 			if err != nil {
 				if api.ErrorStatusCode(err) == 403 {
-					logging.S.Debug(err)
+					logging.Debugf("%s", err.Error())
 					return Error{
 						Message: "Cannot list users: missing privileges for ListUsers",
 					}
@@ -143,11 +144,17 @@ func newUsersListCmd(cli *CLI) *cobra.Command {
 
 			switch format {
 			case "json":
-				jsonOutput, err := json.Marshal(users)
+				jsonOutput, err := json.Marshal(users.Items)
 				if err != nil {
 					return err
 				}
 				cli.Output(string(jsonOutput))
+			case "yaml":
+				yamlOutput, err := yaml.Marshal(users.Items)
+				if err != nil {
+					return err
+				}
+				cli.Output(string(yamlOutput))
 			default:
 				for _, user := range users.Items {
 					rows = append(rows, row{
@@ -190,11 +197,11 @@ $ infra users remove janedoe@example.com`,
 				return err
 			}
 
-			logging.S.Debugf("call server: list users named %q", name)
+			logging.Debugf("call server: list users named %q", name)
 			users, err := client.ListUsers(api.ListUsersRequest{Name: name})
 			if err != nil {
 				if api.ErrorStatusCode(err) == 403 {
-					logging.S.Debug(err)
+					logging.Debugf("%s", err.Error())
 					return Error{
 						Message: "Cannot delete users: missing privileges for ListUsers",
 					}
@@ -206,12 +213,12 @@ $ infra users remove janedoe@example.com`,
 				return Error{Message: fmt.Sprintf("No user named %q ", name)}
 			}
 
-			logging.S.Debugf("deleting %d users named %q...", users.Count, name)
+			logging.Debugf("deleting %d users named %q...", users.Count, name)
 			for _, user := range users.Items {
-				logging.S.Debugf("...call server: delete user %s", user.ID)
+				logging.Debugf("...call server: delete user %s", user.ID)
 				if err := client.DeleteUser(user.ID); err != nil {
 					if api.ErrorStatusCode(err) == 403 {
-						logging.S.Debug(err)
+						logging.Debugf("%s", err.Error())
 						return Error{
 							Message: "Cannot delete users: missing privileges for DeleteUsers",
 						}
@@ -238,7 +245,7 @@ func CreateUser(req *api.CreateUserRequest) (*api.CreateUserResponse, error) {
 		return nil, err
 	}
 
-	logging.S.Debugf("call server: create users named %q", req.Name)
+	logging.Debugf("call server: create users named %q", req.Name)
 	resp, err := client.CreateUser(req)
 	if err != nil {
 		return nil, err
@@ -292,10 +299,10 @@ func updateUser(cli *CLI, name string) error {
 	user, err := getUserByName(client, name)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			logging.S.Debugf("user not found: %s", err)
+			logging.Debugf("user not found: %s", err)
 			return Error{Message: fmt.Sprintf("No user named %q in local provider; only local users can be edited", name)}
 		} else if api.ErrorStatusCode(err) == 403 {
-			logging.S.Debug(err)
+			logging.Debugf("%s", err.Error())
 			return Error{
 				Message: fmt.Sprintf("Cannot update user %q: missing privileges for GetUser", name),
 			}
@@ -332,7 +339,7 @@ func getUserByName(client *api.Client, name string) (*api.User, error) {
 	}
 
 	if users.Count > 1 {
-		logging.S.Errorf("multiple users matching name %q. Likely missing database index on identities(name)", name)
+		logging.Errorf("multiple users matching name %q. Likely missing database index on identities(name)", name)
 		return nil, fmt.Errorf("multiple users matching name %q", name)
 	}
 
@@ -402,7 +409,7 @@ func isUserSelf(name string) (bool, error) {
 
 // createUser creates a user with the requested name
 func createUser(client *api.Client, name string) (*api.CreateUserResponse, error) {
-	logging.S.Debugf("call server: create user named %q", name)
+	logging.Debugf("call server: create user named %q", name)
 	user, err := client.CreateUser(&api.CreateUserRequest{Name: name})
 	if err != nil {
 		return nil, err
@@ -414,39 +421,15 @@ func createUser(client *api.Client, name string) (*api.CreateUserResponse, error
 // check if the user has permissions to reset passwords for another user.
 // This might be handy for customizing error messages
 func hasAccessToChangePasswordsForOtherUsers(client *api.Client, config *ClientHostConfig) (bool, error) {
-	// TODO: could really use inherited grants for this
 	grants, err := client.ListGrants(api.ListGrantsRequest{
-		User:      config.UserID,
-		Privilege: api.InfraAdminRole,
-		Resource:  "infra",
+		User:          config.UserID,
+		Privilege:     api.InfraAdminRole,
+		Resource:      "infra",
+		ShowInherited: true,
 	})
 	if err != nil {
 		return false, err
 	}
 
-	if len(grants.Items) > 0 {
-		return true, nil
-	}
-
-	myGroups, err := client.ListGroups(api.ListGroupsRequest{UserID: config.UserID})
-	if err != nil {
-		return false, err
-	}
-
-	for _, group := range myGroups.Items {
-		grants, err := client.ListGrants(api.ListGrantsRequest{
-			Group:     group.ID,
-			Privilege: api.InfraAdminRole,
-			Resource:  "infra",
-		})
-		if err != nil {
-			return false, err
-		}
-
-		if len(grants.Items) > 0 {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return len(grants.Items) > 0, nil
 }

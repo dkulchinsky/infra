@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -41,6 +42,14 @@ func TestSendAPIError(t *testing.T) {
 			result: api.Error{Code: http.StatusUnauthorized, Message: "unauthorized"},
 		},
 		{
+			err:    data.ErrAccessKeyExpired,
+			result: api.Error{Code: http.StatusUnauthorized, Message: "unauthorized: " + data.ErrAccessKeyExpired.Error()},
+		},
+		{
+			err:    data.ErrAccessKeyDeadlineExceeded,
+			result: api.Error{Code: http.StatusUnauthorized, Message: "unauthorized: " + data.ErrAccessKeyDeadlineExceeded.Error()},
+		},
+		{
 			err: access.AuthorizationError{
 				Resource:      "provider",
 				Operation:     "create",
@@ -67,7 +76,7 @@ func TestSendAPIError(t *testing.T) {
 			},
 		},
 		{
-			err: validate.Struct(struct {
+			err: pgValidate.Struct(struct {
 				Email string `validate:"required,email" json:"email"`
 			}{}),
 			result: api.Error{
@@ -87,6 +96,11 @@ func TestSendAPIError(t *testing.T) {
 		t.Run(test.err.Error(), func(t *testing.T) {
 			resp := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(resp)
+			c.Request = &http.Request{
+				Method:     http.MethodPost,
+				URL:        &url.URL{Path: "/api/path"},
+				RemoteAddr: "10.10.10.10:34124",
+			}
 
 			sendAPIError(c, test.err)
 

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http"
+
 	"github.com/infrahq/infra/uid"
 )
 
@@ -17,11 +19,24 @@ type Grant struct {
 	Resource  string `json:"resource" note:"a resource name in Infra's Universal Resource Notation"`
 }
 
+type CreateGrantResponse struct {
+	*Grant     `json:",inline"`
+	WasCreated bool `json:"wasCreated"`
+}
+
+func (r *CreateGrantResponse) StatusCode() int {
+	if !r.WasCreated {
+		return http.StatusOK
+	}
+	return http.StatusCreated
+}
+
 type ListGrantsRequest struct {
-	User      uid.ID `form:"user" validate:"excluded_with=Group"`
-	Group     uid.ID `form:"group" validate:"excluded_with=User"`
-	Resource  string `form:"resource" example:"production"`
-	Privilege string `form:"privilege" example:"view"`
+	User          uid.ID `form:"user" validate:"excluded_with=Group"`
+	Group         uid.ID `form:"group" validate:"excluded_with=User"`
+	Resource      string `form:"resource" example:"production"`
+	Privilege     string `form:"privilege" example:"view"`
+	ShowInherited bool   `form:"showInherited" note:"if true, this field includes grants that the user inherits through groups"`
 	PaginationRequest
 }
 

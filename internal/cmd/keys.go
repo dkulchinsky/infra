@@ -11,7 +11,7 @@ import (
 	"github.com/infrahq/infra/internal/logging"
 )
 
-const ThirtyDays = 30 * (24 * time.Hour)
+const thirtyDays = 30 * (24 * time.Hour)
 
 func newKeysCmd(cli *CLI) *cobra.Command {
 	cmd := &cobra.Command{
@@ -72,7 +72,7 @@ $ infra keys add connector
 			user, err := getUserByName(client, userName)
 			if err != nil {
 				if api.ErrorStatusCode(err) == 403 {
-					logging.S.Debug(err)
+					logging.Debugf("%s", err.Error())
 					return Error{
 						Message: "Cannot create key: missing privileges for getUser",
 					}
@@ -80,7 +80,7 @@ $ infra keys add connector
 				return err
 			}
 
-			logging.S.Debugf("call server: create access key named %q", options.Name)
+			logging.Debugf("call server: create access key named %q", options.Name)
 			resp, err := client.CreateAccessKey(&api.CreateAccessKeyRequest{
 				UserID:            user.ID,
 				Name:              options.Name,
@@ -89,7 +89,7 @@ $ infra keys add connector
 			})
 			if err != nil {
 				if api.ErrorStatusCode(err) == 403 {
-					logging.S.Debug(err)
+					logging.Debugf("%s", err.Error())
 					return Error{
 						Message: "Cannot create key: missing privileges for CreateKey",
 					}
@@ -97,15 +97,26 @@ $ infra keys add connector
 				return err
 			}
 
+			var expMsg strings.Builder
+			expMsg.WriteString("This key will expire in ")
+			expMsg.WriteString(ExactDuration(options.TTL))
+			if !resp.Expires.Equal(resp.ExtensionDeadline) {
+				expMsg.WriteString(", and must be used every ")
+				expMsg.WriteString(ExactDuration(options.ExtensionDeadline))
+				expMsg.WriteString(" to remain valid")
+			}
 			cli.Output("Issued access key %q for %q", resp.Name, userName)
+			cli.Output(expMsg.String())
+			cli.Output("")
+
 			cli.Output("Key: %s", resp.AccessKey)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&options.Name, "name", "", "The name of the access key")
-	cmd.Flags().DurationVar(&options.TTL, "ttl", ThirtyDays, "The total time that the access key will be valid for")
-	cmd.Flags().DurationVar(&options.ExtensionDeadline, "extension-deadline", ThirtyDays, "A specified deadline that the access key must be used within to remain valid")
+	cmd.Flags().DurationVar(&options.TTL, "ttl", thirtyDays, "The total time that the access key will be valid for")
+	cmd.Flags().DurationVar(&options.ExtensionDeadline, "extension-deadline", thirtyDays, "A specified deadline that the access key must be used within to remain valid")
 
 	return cmd
 }
@@ -124,11 +135,11 @@ func newKeysRemoveCmd(cli *CLI) *cobra.Command {
 				return err
 			}
 
-			logging.S.Debugf("call server: list access keys named %q", args[0])
+			logging.Debugf("call server: list access keys named %q", args[0])
 			keys, err := client.ListAccessKeys(api.ListAccessKeysRequest{Name: args[0]})
 			if err != nil {
 				if api.ErrorStatusCode(err) == 403 {
-					logging.S.Debug(err)
+					logging.Debugf("%s", err.Error())
 					return Error{
 						Message: "Cannot delete key: missing privileges for ListKeys",
 					}
@@ -140,13 +151,13 @@ func newKeysRemoveCmd(cli *CLI) *cobra.Command {
 				return Error{Message: fmt.Sprintf("No access keys named %q", args[0])}
 			}
 
-			logging.S.Debugf("deleting %s access keys named %q...", keys.Count, args[0])
+			logging.Debugf("deleting %d access keys named %q...", keys.Count, args[0])
 			for _, key := range keys.Items {
-				logging.S.Debugf("...call server: delete access key %s", key.ID)
+				logging.Debugf("...call server: delete access key %s", key.ID)
 				err = client.DeleteAccessKey(key.ID)
 				if err != nil {
 					if api.ErrorStatusCode(err) == 403 {
-						logging.S.Debug(err)
+						logging.Debugf("%s", err.Error())
 						return Error{
 							Message: "Cannot delete key: missing privileges for DeleteKey",
 						}
@@ -196,7 +207,7 @@ func newKeysListCmd(cli *CLI) *cobra.Command {
 				user, err := getUserByName(client, options.UserName)
 				if err != nil {
 					if api.ErrorStatusCode(err) == 403 {
-						logging.S.Debug(err)
+						logging.Debugf("%s", err.Error())
 						return Error{
 							Message: "Cannot list keys: missing privileges for GetUser",
 						}
@@ -204,11 +215,11 @@ func newKeysListCmd(cli *CLI) *cobra.Command {
 					return err
 				}
 
-				logging.S.Debugf("call server: list access keys for user %s", user.ID)
+				logging.Debugf("call server: list access keys for user %s", user.ID)
 				keys, err = client.ListAccessKeys(api.ListAccessKeysRequest{UserID: user.ID, ShowExpired: options.ShowExpired})
 				if err != nil {
 					if api.ErrorStatusCode(err) == 403 {
-						logging.S.Debug(err)
+						logging.Debugf("%s", err.Error())
 						return Error{
 							Message: "Cannot list keys: missing privileges for ListKeys",
 						}
@@ -216,11 +227,11 @@ func newKeysListCmd(cli *CLI) *cobra.Command {
 					return err
 				}
 			} else {
-				logging.S.Debug("call server: list access keys")
+				logging.Debugf("call server: list access keys")
 				keys, err = client.ListAccessKeys(api.ListAccessKeysRequest{ShowExpired: options.ShowExpired})
 				if err != nil {
 					if api.ErrorStatusCode(err) == 403 {
-						logging.S.Debug(err)
+						logging.Debugf("%s", err.Error())
 						return Error{
 							Message: "Cannot list keys: missing privileges for ListKeys",
 						}

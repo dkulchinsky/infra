@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"github.com/infrahq/infra/internal/access"
 	"github.com/infrahq/infra/internal/logging"
 	"github.com/infrahq/infra/internal/server/authn"
+	"github.com/infrahq/infra/internal/server/data"
 	"github.com/infrahq/infra/internal/server/models"
 	"github.com/infrahq/infra/internal/server/providers"
 	"github.com/infrahq/infra/uid"
@@ -29,13 +31,13 @@ type API struct {
 }
 
 func (a *API) ListUsers(c *gin.Context, r *api.ListUsersRequest) (*api.ListResponse[api.User], error) {
-	pg := models.RequestToPagination(r.PaginationRequest)
-	users, err := access.ListIdentities(c, r.Name, r.Group, r.IDs, pg)
+	p := models.RequestToPagination(r.PaginationRequest)
+	users, err := access.ListIdentities(c, r.Name, r.Group, r.IDs, &p)
 	if err != nil {
 		return nil, err
 	}
 
-	result := api.NewListResponse(users, models.PaginationToResponse(pg), func(identity models.Identity) api.User {
+	result := api.NewListResponse(users, models.PaginationToResponse(p), func(identity models.Identity) api.User {
 		return *identity.ToAPI()
 	})
 
@@ -46,7 +48,7 @@ func (a *API) GetUser(c *gin.Context, r *api.GetUserRequest) (*api.User, error) 
 	if r.ID.IsSelf {
 		iden := access.AuthenticatedIdentity(c)
 		if iden == nil {
-			return nil, internal.ErrUnauthorized
+			return nil, fmt.Errorf("%w: no user is logged in", internal.ErrUnauthorized)
 		}
 		r.ID.ID = iden.ID
 	}
@@ -64,7 +66,7 @@ func (a *API) CreateUser(c *gin.Context, r *api.CreateUserRequest) (*api.CreateU
 	infraProvider := access.InfraProvider(c)
 
 	// infra identity creation should be attempted even if an identity is already known
-	identities, err := access.ListIdentities(c, user.Name, 0, nil, models.Pagination{Limit: 2})
+	identities, err := access.ListIdentities(c, user.Name, 0, nil, &models.Pagination{Limit: 2})
 	if err != nil {
 		return nil, fmt.Errorf("list identities: %w", err)
 	}
@@ -77,7 +79,7 @@ func (a *API) CreateUser(c *gin.Context, r *api.CreateUserRequest) (*api.CreateU
 	case 1:
 		user.ID = identities[0].ID
 	default:
-		logging.S.Errorf("Multiple identites match name %q. DB is missing unique index on user names", r.Name)
+		logging.Errorf("Multiple identites match name %q. DB is missing unique index on user names", r.Name)
 		return nil, fmt.Errorf("multiple identities match specified name") // should not happen
 	}
 
@@ -130,13 +132,13 @@ func (a *API) deprecatedListUserGroups(c *gin.Context, r *api.Resource) (*api.Li
 }
 
 func (a *API) ListGroups(c *gin.Context, r *api.ListGroupsRequest) (*api.ListResponse[api.Group], error) {
-	pg := models.RequestToPagination(r.PaginationRequest)
-	groups, err := access.ListGroups(c, r.Name, r.UserID, pg)
+	p := models.RequestToPagination(r.PaginationRequest)
+	groups, err := access.ListGroups(c, r.Name, r.UserID, &p)
 	if err != nil {
 		return nil, err
 	}
 
-	result := api.NewListResponse(groups, models.PaginationToResponse(pg), func(group models.Group) api.Group {
+	result := api.NewListResponse(groups, models.PaginationToResponse(p), func(group models.Group) api.Group {
 		return *group.ToAPI()
 	})
 
@@ -180,14 +182,14 @@ func (a *API) UpdateUsersInGroup(c *gin.Context, r *api.UpdateUsersInGroupReques
 
 // caution: this endpoint is unauthenticated, do not return sensitive info
 func (a *API) ListProviders(c *gin.Context, r *api.ListProvidersRequest) (*api.ListResponse[api.Provider], error) {
-	exclude := []string{models.InternalInfraProviderName}
-	pg := models.RequestToPagination(r.PaginationRequest)
-	providers, err := access.ListProviders(c, r.Name, exclude, pg)
+	exclude := []models.ProviderKind{models.ProviderKindInfra}
+	p := models.RequestToPagination(r.PaginationRequest)
+	providers, err := access.ListProviders(c, r.Name, exclude, &p)
 	if err != nil {
 		return nil, err
 	}
 
-	result := api.NewListResponse(providers, models.PaginationToResponse(pg), func(provider models.Provider) api.Provider {
+	result := api.NewListResponse(providers, models.PaginationToResponse(p), func(provider models.Provider) api.Provider {
 		return *provider.ToAPI()
 	})
 
@@ -231,7 +233,7 @@ func (a *API) CreateProvider(c *gin.Context, r *api.CreateProviderRequest) (*api
 	}
 	provider.Kind = kind
 
-	if err := a.validateProvider(c, provider); err != nil {
+	if err := a.setProviderInforFromServer(c, provider); err != nil {
 		return nil, err
 	}
 
@@ -259,7 +261,7 @@ func (a *API) UpdateProvider(c *gin.Context, r *api.UpdateProviderRequest) (*api
 	}
 	provider.Kind = kind
 
-	if err := a.validateProvider(c, provider); err != nil {
+	if err := a.setProviderInforFromServer(c, provider); err != nil {
 		return nil, err
 	}
 
@@ -275,13 +277,13 @@ func (a *API) DeleteProvider(c *gin.Context, r *api.Resource) (*api.EmptyRespons
 }
 
 func (a *API) ListDestinations(c *gin.Context, r *api.ListDestinationsRequest) (*api.ListResponse[api.Destination], error) {
-	pg := models.RequestToPagination(r.PaginationRequest)
-	destinations, err := access.ListDestinations(c, r.UniqueID, r.Name, pg)
+	p := models.RequestToPagination(r.PaginationRequest)
+	destinations, err := access.ListDestinations(c, r.UniqueID, r.Name, &p)
 	if err != nil {
 		return nil, err
 	}
 
-	result := api.NewListResponse(destinations, models.PaginationToResponse(pg), func(destination models.Destination) api.Destination {
+	result := api.NewListResponse(destinations, models.PaginationToResponse(p), func(destination models.Destination) api.Destination {
 		return *destination.ToAPI()
 	})
 
@@ -305,6 +307,7 @@ func (a *API) CreateDestination(c *gin.Context, r *api.CreateDestinationRequest)
 		ConnectionCA:  string(r.Connection.CA),
 		Resources:     r.Resources,
 		Roles:         r.Roles,
+		Version:       r.Version,
 	}
 
 	err := access.CreateDestination(c, destination)
@@ -326,6 +329,7 @@ func (a *API) UpdateDestination(c *gin.Context, r *api.UpdateDestinationRequest)
 		ConnectionCA:  string(r.Connection.CA),
 		Resources:     r.Resources,
 		Roles:         r.Roles,
+		Version:       r.Version,
 	}
 
 	if err := access.SaveDestination(c, destination); err != nil {
@@ -355,17 +359,17 @@ func (a *API) CreateToken(c *gin.Context, r *api.EmptyRequest) (*api.CreateToken
 		return &api.CreateTokenResponse{Token: token.Token, Expires: api.Time(token.Expires)}, nil
 	}
 
-	return nil, fmt.Errorf("no identity found in access key: %w", internal.ErrUnauthorized)
+	return nil, fmt.Errorf("%w: no identity found in access key", internal.ErrUnauthorized)
 }
 
 func (a *API) ListAccessKeys(c *gin.Context, r *api.ListAccessKeysRequest) (*api.ListResponse[api.AccessKey], error) {
-	pg := models.RequestToPagination(r.PaginationRequest)
-	accessKeys, err := access.ListAccessKeys(c, r.UserID, r.Name, r.ShowExpired, pg)
+	p := models.RequestToPagination(r.PaginationRequest)
+	accessKeys, err := access.ListAccessKeys(c, r.UserID, r.Name, r.ShowExpired, &p)
 	if err != nil {
 		return nil, err
 	}
 
-	result := api.NewListResponse(accessKeys, models.PaginationToResponse(pg), func(accessKey models.AccessKey) api.AccessKey {
+	result := api.NewListResponse(accessKeys, models.PaginationToResponse(p), func(accessKey models.AccessKey) api.AccessKey {
 		return *accessKey.ToAPI()
 	})
 
@@ -404,7 +408,7 @@ func (a *API) CreateAccessKey(c *gin.Context, r *api.CreateAccessKeyRequest) (*a
 
 func (a *API) ListGrants(c *gin.Context, r *api.ListGrantsRequest) (*api.ListResponse[api.Grant], error) {
 	var subject uid.PolymorphicID
-	pg := models.RequestToPagination(r.PaginationRequest)
+	p := models.RequestToPagination(r.PaginationRequest)
 	switch {
 	case r.User != 0:
 		subject = uid.NewIdentityPolymorphicID(r.User)
@@ -412,12 +416,12 @@ func (a *API) ListGrants(c *gin.Context, r *api.ListGrantsRequest) (*api.ListRes
 		subject = uid.NewGroupPolymorphicID(r.Group)
 	}
 
-	grants, err := access.ListGrants(c, subject, r.Resource, r.Privilege, pg)
+	grants, err := access.ListGrants(c, subject, r.Resource, r.Privilege, r.ShowInherited, &p)
 	if err != nil {
 		return nil, err
 	}
 
-	result := api.NewListResponse(grants, models.PaginationToResponse(pg), func(grant models.Grant) api.Grant {
+	result := api.NewListResponse(grants, models.PaginationToResponse(p), func(grant models.Grant) api.Grant {
 		return *grant.ToAPI()
 	})
 
@@ -443,7 +447,7 @@ func (a *API) GetGrant(c *gin.Context, r *api.Resource) (*api.Grant, error) {
 	return grant.ToAPI(), nil
 }
 
-func (a *API) CreateGrant(c *gin.Context, r *api.CreateGrantRequest) (*api.Grant, error) {
+func (a *API) CreateGrant(c *gin.Context, r *api.CreateGrantRequest) (*api.CreateGrantResponse, error) {
 	var subject uid.PolymorphicID
 
 	switch {
@@ -460,11 +464,28 @@ func (a *API) CreateGrant(c *gin.Context, r *api.CreateGrantRequest) (*api.Grant
 	}
 
 	err := access.CreateGrant(c, grant)
+	var ucerr data.UniqueConstraintError
+
+	if errors.As(err, &ucerr) {
+		grants, err := access.ListGrants(c, grant.Subject, grant.Resource, grant.Privilege, false, &models.Pagination{})
+
+		if err != nil {
+			return nil, err
+		}
+
+		if len(grants) == 0 {
+			return nil, fmt.Errorf("duplicate grant exists, but cannot be found")
+		}
+
+		return &api.CreateGrantResponse{Grant: grants[0].ToAPI()}, nil
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	return grant.ToAPI(), nil
+	return &api.CreateGrantResponse{Grant: grant.ToAPI(), WasCreated: true}, nil
+
 }
 
 func (a *API) DeleteGrant(c *gin.Context, r *api.Resource) (*api.EmptyResponse, error) {
@@ -474,7 +495,7 @@ func (a *API) DeleteGrant(c *gin.Context, r *api.Resource) (*api.EmptyResponse, 
 	}
 
 	if grant.Resource == access.ResourceInfraAPI && grant.Privilege == models.InfraAdminRole {
-		infraAdminGrants, err := access.ListGrants(c, "", grant.Resource, grant.Privilege, models.Pagination{})
+		infraAdminGrants, err := access.ListGrants(c, "", grant.Resource, grant.Privilege, false, &models.Pagination{})
 		if err != nil {
 			return nil, err
 		}
@@ -569,9 +590,8 @@ func (a *API) Login(c *gin.Context, r *api.LoginRequest) (*api.LoginResponse, er
 			// this means an external request failed, probably to an IDP
 			return nil, err
 		}
-		logging.S.Debug(err)
 		// all other failures from login should result in an unauthorized response
-		return nil, internal.ErrUnauthorized
+		return nil, fmt.Errorf("%w: login failed: %v", internal.ErrUnauthorized, err)
 	}
 
 	setAuthCookie(c, bearer, expires)
@@ -603,7 +623,7 @@ func (a *API) UpdateIdentityInfoFromProvider(c *gin.Context) error {
 		return err
 	}
 
-	if provider.Name == models.InternalInfraProviderName {
+	if provider.Name == models.InternalInfraProviderName || provider.Kind == models.ProviderKindInfra {
 		return nil
 	}
 
@@ -615,28 +635,48 @@ func (a *API) UpdateIdentityInfoFromProvider(c *gin.Context) error {
 	return access.UpdateIdentityInfoFromProvider(c, oidc)
 }
 
-// validateProvider checks that a provider being modified is valid
-func (a *API) validateProvider(c *gin.Context, provider *models.Provider) error {
-	oidc, err := a.providerClient(c, provider, "") // redirect URL is not used during validation
-	if err != nil {
-		return fmt.Errorf("%w: %s", internal.ErrBadRequest, err)
-	}
-
-	return oidc.Validate(c.Request.Context())
-}
-
-func (a *API) providerClient(c *gin.Context, provider *models.Provider, redirectURL string) (providers.OIDC, error) {
+func (a *API) providerClient(c *gin.Context, provider *models.Provider, redirectURL string) (providers.OIDCClient, error) {
 	if val, ok := c.Get("oidc"); ok {
 		// oidc is added to the context during unit tests
-		oidc, _ := val.(providers.OIDC)
+		oidc, _ := val.(providers.OIDCClient)
 		return oidc, nil
 	}
 
 	clientSecret, err := secrets.GetSecret(string(provider.ClientSecret), a.server.secrets)
 	if err != nil {
-		logging.S.Debugf("could not get client secret: %s", err)
+		logging.Debugf("could not get client secret: %s", err)
 		return nil, fmt.Errorf("client secret not found")
 	}
 
-	return providers.NewOIDC(*provider, clientSecret, redirectURL), nil
+	return providers.NewOIDCClient(*provider, clientSecret, redirectURL), nil
+}
+
+// setProviderInfoFromServer checks information provided by an OIDC server
+func (a *API) setProviderInforFromServer(c *gin.Context, provider *models.Provider) error {
+	// create a provider client to validate the server and get its info
+	oidc, err := a.providerClient(c, provider, "http://localhost:8301")
+	if err != nil {
+		return fmt.Errorf("%w: %s", internal.ErrBadRequest, err)
+	}
+
+	err = oidc.Validate(c)
+	if err != nil {
+		if errors.Is(err, providers.ErrValidation) {
+			return fmt.Errorf("%w: %s", internal.ErrBadRequest, err)
+		}
+		return err
+	}
+
+	authServerInfo, err := oidc.AuthServerInfo(c)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("%w: %s", internal.ErrBadGateway, err)
+		}
+		return err
+	}
+
+	provider.AuthURL = authServerInfo.AuthURL
+	provider.Scopes = authServerInfo.ScopesSupported
+
+	return nil
 }

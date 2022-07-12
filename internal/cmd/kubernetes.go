@@ -67,23 +67,9 @@ func updateKubeConfig(client *api.Client, id uid.ID) error {
 		return err
 	}
 
-	grants, err := client.ListGrants(api.ListGrantsRequest{User: id})
+	grants, err := client.ListGrants(api.ListGrantsRequest{User: id, ShowInherited: true})
 	if err != nil {
 		return err
-	}
-
-	groups, err := client.ListGroups(api.ListGroupsRequest{UserID: id})
-	if err != nil {
-		return err
-	}
-
-	for _, g := range groups.Items {
-		groupGrants, err := client.ListGrants(api.ListGrantsRequest{Group: g.ID})
-		if err != nil {
-			return err
-		}
-
-		grants.Items = append(grants.Items, groupGrants.Items...)
 	}
 
 	return writeKubeconfig(user, destinations.Items, grants.Items)
@@ -144,7 +130,7 @@ func writeKubeconfig(user *api.User, destinations []api.Destination, grants []ap
 
 		u.Scheme = "https"
 
-		logging.S.Debugf("creating kubeconfig for %s", context)
+		logging.Debugf("creating kubeconfig for %s", context)
 
 		kubeConfig.Clusters[context] = &clientcmdapi.Cluster{
 			Server:                   u.String(),
