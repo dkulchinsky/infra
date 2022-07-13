@@ -1,5 +1,10 @@
 package api
 
+type Paginatable interface {
+	GetPaginationRequest() PaginationRequest
+	SetPage(page int) Paginatable
+}
+
 type PaginationRequest struct {
 	Page  int `form:"page" validate:"min=0"`
 	Limit int `form:"limit" validate:"min=0,max=1000"`

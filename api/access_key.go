@@ -39,3 +39,13 @@ type CreateAccessKeyResponse struct {
 	ExtensionDeadline Time   `json:"extensionDeadline" note:"the key must be used by this time to remain valid"`
 	AccessKey         string `json:"accessKey"`
 }
+
+func (req ListAccessKeysRequest) GetPaginationRequest() PaginationRequest {
+	return req.PaginationRequest
+}
+
+func (req ListAccessKeysRequest) SetPage(page int) Paginatable {
+	req.PaginationRequest.Page = page
+
+	return req
+}

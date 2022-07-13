@@ -37,3 +37,13 @@ type ListProvidersRequest struct {
 	Name string `form:"name" example:"okta"`
 	PaginationRequest
 }
+
+func (req ListProvidersRequest) GetPaginationRequest() PaginationRequest {
+	return req.PaginationRequest
+}
+
+func (req ListProvidersRequest) SetPage(page int) Paginatable {
+	req.PaginationRequest.Page = page
+
+	return req
+}

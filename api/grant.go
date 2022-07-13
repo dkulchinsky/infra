@@ -46,3 +46,13 @@ type CreateGrantRequest struct {
 	Privilege string `json:"privilege" validate:"required" example:"view" note:"a role or permission"`
 	Resource  string `json:"resource" validate:"required" example:"production" note:"a resource name in Infra's Universal Resource Notation"`
 }
+
+func (req ListGrantsRequest) GetPaginationRequest() PaginationRequest {
+	return req.PaginationRequest
+}
+
+func (req ListGrantsRequest) SetPage(page int) Paginatable {
+	req.PaginationRequest.Page = page
+
+	return req
+}

@@ -54,3 +54,13 @@ type UpdateDestinationRequest struct {
 	Resources []string `json:"resources"`
 	Roles     []string `json:"roles"`
 }
+
+func (req ListDestinationsRequest) GetPaginationRequest() PaginationRequest {
+	return req.PaginationRequest
+}
+
+func (req ListDestinationsRequest) SetPage(page int) Paginatable {
+	req.PaginationRequest.Page = page
+
+	return req
+}

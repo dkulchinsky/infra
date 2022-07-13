@@ -39,3 +39,13 @@ type UpdateUserRequest struct {
 	ID       uid.ID `uri:"id" json:"-" validate:"required"`
 	Password string `json:"password" validate:"required,min=8"`
 }
+
+func (req ListUsersRequest) GetPaginationRequest() PaginationRequest {
+	return req.PaginationRequest
+}
+
+func (req ListUsersRequest) SetPage(page int) Paginatable {
+	req.PaginationRequest.Page = page
+
+	return req
+}

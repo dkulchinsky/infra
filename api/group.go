@@ -28,3 +28,14 @@ type UpdateUsersInGroupRequest struct {
 	UserIDsToAdd    []uid.ID `json:"usersToAdd"`
 	UserIDsToRemove []uid.ID `json:"usersToRemove"`
 }
+
+func (req ListGroupsRequest) GetPaginationRequest() PaginationRequest {
+	return req.PaginationRequest
+}
+
+func (req ListGroupsRequest) SetPage(page int) Paginatable {
+
+	req.PaginationRequest.Page = page
+
+	return req
+}
