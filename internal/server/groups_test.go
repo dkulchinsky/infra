@@ -302,7 +302,7 @@ func TestAPI_CreateGroup(t *testing.T) {
 				assert.Equal(t, resp.Code, http.StatusCreated, resp.Body.String())
 			},
 			body: api.CreateGroupRequest{
-				Name: "Awesome group",
+				Name: "AwesomeGroup",
 			},
 		},
 	}
