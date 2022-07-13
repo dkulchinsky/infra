@@ -5,13 +5,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/infrahq/infra/internal/validate"
 	"github.com/infrahq/infra/uid"
 )
 
 type Query map[string][]string
 
 type Resource struct {
-	ID uid.ID `uri:"id" validate:"required"`
+	ID uid.ID `uri:"id"`
+}
+
+func (r Resource) ValidationRules() []validate.ValidationRule {
+	return []validate.ValidationRule{
+		validate.Required("id", r.ID),
+	}
 }
 
 // IDOrSelf is a union type that may represent either a uid.ID or the literal
