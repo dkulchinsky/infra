@@ -232,6 +232,7 @@ func TestProvidersEditCmd(t *testing.T) {
 			ClientID:     "okta-client-id",
 			ClientSecret: "okta-client-secret",
 			Kind:         "oidc",
+			API:          api.ProviderAPICredentials{},
 		}
 		assert.DeepEqual(t, updateProviderRequest, expected)
 	})

@@ -225,6 +225,9 @@ func (a *API) CreateProvider(c *gin.Context, r *api.CreateProviderRequest) (*api
 		URL:          cleanupURL(r.URL),
 		ClientID:     r.ClientID,
 		ClientSecret: models.EncryptedAtRest(r.ClientSecret),
+		PrivateKey:   models.EncryptedAtRest(r.API.PrivateKey),
+		ClientEmail:  r.API.ClientEmail,
+		DomainAdmin:  r.API.DomainAdmin,
 	}
 
 	kind, err := models.ParseProviderKind(r.Kind)
@@ -235,12 +238,6 @@ func (a *API) CreateProvider(c *gin.Context, r *api.CreateProviderRequest) (*api
 
 	if err := a.setProviderInforFromServer(c, provider); err != nil {
 		return nil, err
-	}
-
-	if r.API != nil {
-		provider.PrivateKey = models.EncryptedAtRest(r.API.PrivateKey)
-		provider.ClientEmail = r.API.ClientEmail
-		provider.DomainAdmin = r.API.DomainAdmin
 	}
 
 	if err := access.CreateProvider(c, provider); err != nil {
@@ -259,6 +256,9 @@ func (a *API) UpdateProvider(c *gin.Context, r *api.UpdateProviderRequest) (*api
 		URL:          cleanupURL(r.URL),
 		ClientID:     r.ClientID,
 		ClientSecret: models.EncryptedAtRest(r.ClientSecret),
+		ClientEmail:  r.API.ClientEmail,
+		DomainAdmin:  r.API.DomainAdmin,
+		PrivateKey:   models.EncryptedAtRest(r.API.PrivateKey),
 	}
 
 	kind, err := models.ParseProviderKind(r.Kind)
@@ -269,12 +269,6 @@ func (a *API) UpdateProvider(c *gin.Context, r *api.UpdateProviderRequest) (*api
 
 	if err := a.setProviderInforFromServer(c, provider); err != nil {
 		return nil, err
-	}
-
-	if r.API != nil {
-		provider.ClientEmail = r.API.ClientEmail
-		provider.DomainAdmin = r.API.DomainAdmin
-		provider.PrivateKey = models.EncryptedAtRest(r.API.PrivateKey)
 	}
 
 	if err := access.SaveProvider(c, provider); err != nil {
@@ -658,13 +652,7 @@ func (a *API) providerClient(c *gin.Context, provider *models.Provider, redirect
 		return nil, fmt.Errorf("client secret not found")
 	}
 
-	apiPrivateKey, err := secrets.GetSecret(string(provider.PrivateKey), a.server.secrets)
-	if err != nil {
-		logging.Debugf("could not get api private key secret: %s", err)
-		// this is not always set so we continue on error
-	}
-
-	return providers.NewOIDCClient(*provider, clientSecret, apiPrivateKey, redirectURL), nil
+	return providers.NewOIDCClient(*provider, clientSecret, redirectURL), nil
 }
 
 // setProviderInfoFromServer checks information provided by an OIDC server

@@ -6,7 +6,7 @@ import (
 
 // ProviderAPICredentials contain sensitive fields, it should not be sent on a response
 type ProviderAPICredentials struct {
-	PrivateKey  PEM    `json:"pem" example:"-----BEGIN PRIVATE KEY-----\nMIIDNTCCAh2gAwIBAgIRALRetnpcTo9O3V2fAK3ix+c\n-----END PRIVATE KEY-----\n"`
+	PrivateKey  PEM    `json:"privateKey" example:"-----BEGIN PRIVATE KEY-----\nMIIDNTCCAh2gAwIBAgIRALRetnpcTo9O3V2fAK3ix+c\n-----END PRIVATE KEY-----\n"`
 	ClientEmail string `json:"clientEmail"`
 	DomainAdmin string `json:"domainAdmin"`
 }
@@ -24,22 +24,22 @@ type Provider struct {
 }
 
 type CreateProviderRequest struct {
-	Name         string                  `json:"name" validate:"required" example:"okta"`
-	URL          string                  `json:"url" validate:"required" example:"infrahq.okta.com"`
-	ClientID     string                  `json:"clientID" validate:"required" example:"0oapn0qwiQPiMIyR35d6"`
-	ClientSecret string                  `json:"clientSecret" validate:"required" example:"jmda5eG93ax3jMDxTGrbHd_TBGT6kgNZtrCugLbU"`
-	Kind         string                  `json:"kind" validate:"omitempty,oneof=oidc okta azure google" example:"oidc"`
-	API          *ProviderAPICredentials `json:"api"`
+	Name         string                 `json:"name" validate:"required" example:"okta"`
+	URL          string                 `json:"url" validate:"required" example:"infrahq.okta.com"`
+	ClientID     string                 `json:"clientID" validate:"required" example:"0oapn0qwiQPiMIyR35d6"`
+	ClientSecret string                 `json:"clientSecret" validate:"required" example:"jmda5eG93ax3jMDxTGrbHd_TBGT6kgNZtrCugLbU"`
+	Kind         string                 `json:"kind" validate:"omitempty,oneof=oidc okta azure google" example:"oidc"`
+	API          ProviderAPICredentials `json:"api"`
 }
 
 type UpdateProviderRequest struct {
-	ID           uid.ID                  `uri:"id" json:"-" validate:"required"`
-	Name         string                  `json:"name" validate:"required" example:"okta"`
-	URL          string                  `json:"url" validate:"required" example:"infrahq.okta.com"`
-	ClientID     string                  `json:"clientID" validate:"required" example:"0oapn0qwiQPiMIyR35d6"`
-	ClientSecret string                  `json:"clientSecret" validate:"required" example:"jmda5eG93ax3jMDxTGrbHd_TBGT6kgNZtrCugLbU"`
-	Kind         string                  `json:"kind" validate:"omitempty,oneof=oidc okta azure google" example:"oidc"`
-	API          *ProviderAPICredentials `json:"api,omitempty"`
+	ID           uid.ID                 `uri:"id" json:"-" validate:"required"`
+	Name         string                 `json:"name" validate:"required" example:"okta"`
+	URL          string                 `json:"url" validate:"required" example:"infrahq.okta.com"`
+	ClientID     string                 `json:"clientID" validate:"required" example:"0oapn0qwiQPiMIyR35d6"`
+	ClientSecret string                 `json:"clientSecret" validate:"required" example:"jmda5eG93ax3jMDxTGrbHd_TBGT6kgNZtrCugLbU"`
+	Kind         string                 `json:"kind" validate:"omitempty,oneof=oidc okta azure google" example:"oidc"`
+	API          ProviderAPICredentials `json:"api,omitempty"`
 }
 
 type ListProvidersRequest struct {

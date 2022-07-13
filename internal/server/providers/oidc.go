@@ -46,7 +46,7 @@ type oidcClientImplementation struct {
 	RedirectURL  string
 }
 
-func NewOIDCClient(provider models.Provider, clientSecret, apiKeySecret, redirectURL string) OIDCClient {
+func NewOIDCClient(provider models.Provider, clientSecret, redirectURL string) OIDCClient {
 	oidcClient := &oidcClientImplementation{
 		ProviderID:   provider.ID,
 		Domain:       provider.URL,
@@ -63,7 +63,7 @@ func NewOIDCClient(provider models.Provider, clientSecret, apiKeySecret, redirec
 		return &google{
 			OIDCClient: oidcClient,
 			GoogleCredentials: googleCredentials{
-				PrivateKey:  apiKeySecret,
+				PrivateKey:  string(provider.PrivateKey),
 				ClientEmail: provider.ClientEmail,
 				DomainAdmin: provider.DomainAdmin,
 			},

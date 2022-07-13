@@ -3199,11 +3199,8 @@
                       "domainAdmin": {
                         "type": "string"
                       },
-                      "pem": {
+                      "privateKey": {
                         "example": "-----BEGIN PRIVATE KEY-----\nMIIDNTCCAh2gAwIBAgIRALRetnpcTo9O3V2fAK3ix+c\n-----END PRIVATE KEY-----\n",
-                        "type": "string"
-                      },
-                      "serviceClientID": {
                         "type": "string"
                       }
                     },
@@ -3547,11 +3544,8 @@
                       "domainAdmin": {
                         "type": "string"
                       },
-                      "pem": {
+                      "privateKey": {
                         "example": "-----BEGIN PRIVATE KEY-----\nMIIDNTCCAh2gAwIBAgIRALRetnpcTo9O3V2fAK3ix+c\n-----END PRIVATE KEY-----\n",
-                        "type": "string"
-                      },
-                      "serviceClientID": {
                         "type": "string"
                       }
                     },

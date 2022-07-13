@@ -16,6 +16,9 @@ export default function ProvidersAddDetails() {
   const [url, setURL] = useState('')
   const [clientID, setClientID] = useState('')
   const [clientSecret, setClientSecret] = useState('')
+  const [privateKey, setPrivateKey] = useState('')
+  const [clientEmail, setClientEmail] = useState('')
+  const [domainAdmin, setDomainAdmin] = useState('')
   const [error, setError] = useState('')
   const [errors, setErrors] = useState({})
   const [name, setName] = useState(kind)
@@ -40,12 +43,18 @@ export default function ProvidersAddDetails() {
         async ({ items: providers } = { items: [] }) => {
           const res = await fetch('/api/providers', {
             method: 'POST',
+            headers: {
+              'Infra-Version': '0.13.6' /* TODO */
+            },
             body: JSON.stringify({
               name,
               url,
               clientID,
               clientSecret,
               kind,
+              privateKey,
+              clientEmail,
+              domainAdmin
             }),
           })
 
@@ -102,9 +111,8 @@ export default function ProvidersAddDetails() {
             placeholder='choose a name for your identity provider'
             value={name}
             onChange={e => setName(e.target.value)}
-            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${
-              errors.name ? 'border-pink-500/60' : ''
-            }`}
+            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${errors.name ? 'border-pink-500/60' : ''
+              }`}
           />
           {errors.name && <ErrorMessage message={errors.name} />}
         </div>
@@ -129,9 +137,8 @@ export default function ProvidersAddDetails() {
             placeholder='domain or URL'
             value={url}
             onChange={e => setURL(e.target.value)}
-            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${
-              errors.url ? 'border-pink-500/60' : ''
-            }`}
+            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${errors.url ? 'border-pink-500/60' : ''
+              }`}
           />
           {errors.url && <ErrorMessage message={errors.url} />}
         </div>
@@ -143,9 +150,8 @@ export default function ProvidersAddDetails() {
             type='search'
             value={clientID}
             onChange={e => setClientID(e.target.value)}
-            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${
-              errors.clientid ? 'border-pink-500/60' : ''
-            }`}
+            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${errors.clientid ? 'border-pink-500/60' : ''
+              }`}
           />
           {errors.clientid && <ErrorMessage message={errors.clientid} />}
         </div>
@@ -159,14 +165,69 @@ export default function ProvidersAddDetails() {
             placeholder='client secret'
             value={clientSecret}
             onChange={e => setClientSecret(e.target.value)}
-            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${
-              errors.clientsecret ? 'border-pink-500/60' : ''
-            }`}
+            className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${errors.clientsecret ? 'border-pink-500/60' : ''
+              }`}
           />
           {errors.clientsecret && (
             <ErrorMessage message={errors.clientsecret} />
           )}
         </div>
+        {kind === 'google' && (
+          <div>
+            <label className='text-2xs text-white/90'>
+              Optional details{' '}
+              <a
+                className='text-violet-100 underline'
+                target='_blank'
+                href='https://infrahq.com/docs/identity-providers/google#groups' /* TODO: make sure this link works*/
+                rel='noreferrer'
+              >
+                learn more
+              </a>
+            </label>
+            <div className='mt-4'>
+              <label className='text-3xs uppercase text-gray-400'>
+                Private Key
+              </label>
+              <input
+                autoFocus
+                placeholder='service account private key'
+                value={privateKey}
+                onChange={e => setPrivateKey(e.target.value)}
+                className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${errors.url ? 'border-pink-500/60' : ''
+                  }`}
+              />
+              {errors.url && <ErrorMessage message={errors.url} />}
+            </div>
+            <div className='mt-4'>
+              <label className='text-3xs uppercase text-gray-400'>Client Email</label>
+              <input
+                placeholder='client email'
+                type='search'
+                value={clientEmail}
+                onChange={e => setClientEmail(e.target.value)}
+                className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${errors.clientid ? 'border-pink-500/60' : ''
+                  }`}
+              />
+              {errors.clientid && <ErrorMessage message={errors.clientid} />}
+            </div>
+            <div className='mt-4'>
+              <label className='text-3xs uppercase text-gray-400'>
+                Domain Admin
+              </label>
+              <input
+                placeholder='domain admin email'
+                value={domainAdmin}
+                onChange={e => setDomainAdmin(e.target.value)}
+                className={`w-full border-b border-gray-800 bg-transparent px-px py-3 text-3xs placeholder:italic focus:border-b focus:border-gray-200 focus:outline-none ${errors.clientsecret ? 'border-pink-500/60' : ''
+                  }`}
+              />
+              {errors.clientsecret && (
+                <ErrorMessage message={errors.clientsecret} />
+              )}
+            </div>
+          </div>
+        )}
         <div className='mt-6 flex flex-row items-center justify-end'>
           <Link href='/providers'>
             <a className='border-0 px-6 py-3 text-2xs uppercase text-gray-400 hover:text-white focus:text-white focus:outline-none'>

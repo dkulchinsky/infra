@@ -634,7 +634,7 @@ func (Server) loadProvider(db *gorm.DB, input Provider) (*models.Provider, error
 		if provider.Kind != models.ProviderKindInfra {
 			// only call the provider to resolve info if it is not known
 			if input.AuthURL == "" && len(input.Scopes) == 0 {
-				providerClient := providers.NewOIDCClient(*provider, input.ClientSecret, input.PrivateKey, "http://localhost:8301")
+				providerClient := providers.NewOIDCClient(*provider, input.ClientSecret, "http://localhost:8301")
 				authServerInfo, err := providerClient.AuthServerInfo(context.Background())
 				if err != nil {
 					if errors.Is(err, context.DeadlineExceeded) {
