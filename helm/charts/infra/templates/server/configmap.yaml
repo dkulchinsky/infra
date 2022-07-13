@@ -36,6 +36,10 @@ data:
 {{- end }}
 {{- end }}
 
+{{- if not .Values.server.config.dbEncryptionKey }}
+    dbEncryptionKey: /var/run/secrets/infrahq.com/encryption-key/key
+{{- end }}
+
 {{- if not .Values.server.config.tls }}
     tls:
       ca: "/var/run/secrets/infrahq.com/tls-ca/ca.crt"
