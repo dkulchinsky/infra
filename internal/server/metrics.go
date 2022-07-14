@@ -118,9 +118,9 @@ func setupMetrics(db *gorm.DB) *prometheus.Registry {
 			Count     float64
 		}
 
-		cmp := time.Now().Add(-5 * time.Minute)
+		timeout := time.Now().Add(-5 * time.Minute)
 
-		if err := db.Raw("SELECT COALESCE(version, '') AS version, last_seen_at >= ? AS connected, COUNT(*) AS count FROM destinations WHERE deleted_at IS NULL GROUP BY COALESCE(version, ''), last_seen_at >= ?", cmp, cmp).Scan(&results).Error; err != nil {
+		if err := db.Debug().Raw("SELECT *, COUNT(*) AS count FROM (SELECT COALESCE(version, '') AS version, last_seen_at >= ? AS connected FROM destinations WHERE deleted_at IS NULL) AS d GROUP BY version, connected", timeout).Scan(&results).Error; err != nil {
 			logging.L.Warn().Err(err).Msg("destinations")
 			return []metrics.Metric{}
 		}
