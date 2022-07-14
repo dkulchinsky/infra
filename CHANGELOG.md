@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.13.7](https://github.com/infrahq/infra/compare/v0.13.6...v0.13.7) (2022-07-14)
+
+
+### Features
+
+* add destination status as metric label ([ceb570f](https://github.com/infrahq/infra/commit/ceb570f9d98a2d59e98fd3b13ebb522e2c10855b))
+* groups ([#2510](https://github.com/infrahq/infra/issues/2510)) ([dd1f835](https://github.com/infrahq/infra/commit/dd1f835d940611e785597ca91fd2b669264e5d7a))
+* Login provider buttons ([#2562](https://github.com/infrahq/infra/issues/2562)) ([bdae00f](https://github.com/infrahq/infra/commit/bdae00fc1ade3b5eeca2920d8010e23ec27a183a))
+* report version in destinations API ([9963d90](https://github.com/infrahq/infra/commit/9963d908d71a37493acef1ef223f4f108738b136))
+* sample api request logs based on fields ([eca0969](https://github.com/infrahq/infra/commit/eca0969b42b150c77c8943a9f7e4e8809b9e09da))
+* update prom resource metrics with labels ([10f52b8](https://github.com/infrahq/infra/commit/10f52b8331929118f13f4732e57a1617cbe4b031))
+
+
+### Bug Fixes
+
+* coalesce provider.kind and destinations.version ([7243b0d](https://github.com/infrahq/infra/commit/7243b0d9d44c1641bcd35f33d3c986a9d8c6e7bf))
+* **docs:** remove bash syntax highlighting ([#2457](https://github.com/infrahq/infra/issues/2457)) ([7b0dde7](https://github.com/infrahq/infra/commit/7b0dde787b69c1ac5b37cd414623575c57476790))
+* filter deleted items in db.Raw queries ([cf0a48e](https://github.com/infrahq/infra/commit/cf0a48edad236d97a2a729d2c802f2cfae8db800))
+* notifies user when adding duplicate grant ([#2360](https://github.com/infrahq/infra/issues/2360)) ([f70a1fe](https://github.com/infrahq/infra/commit/f70a1fe5cefc4a6ff58d75617b6cd94dfb56fab6))
+* possible panic on server restart ([03cfb33](https://github.com/infrahq/infra/commit/03cfb33c40b2f5c90e5d3486ece65fc27a76e983))
+* remove email validation lib ([#2565](https://github.com/infrahq/infra/issues/2565)) ([ed97980](https://github.com/infrahq/infra/commit/ed9798066f85a51a1032770e0d2154f8e2158caa))
+
 ## [0.13.6](https://github.com/infrahq/infra/compare/v0.13.5...v0.13.6) (2022-07-07)
 
 
